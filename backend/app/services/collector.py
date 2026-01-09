@@ -15,9 +15,24 @@ class StockCollector:
         print(f"[{datetime.now()}] Starting Stock List Update (FDR)...")
         
         try:
-            # KRX returns both KOSPI and KOSDAQ
+            # KRX returns both KOSPI and KOSDAQ with price info
             df = fdr.StockListing('KRX')
             print(f"Fetched {len(df)} tickers from KRX")
+
+            # KRX-DESC contains detailed Sector info
+            try:
+                df_desc = fdr.StockListing('KRX-DESC')
+                print(f"Fetched {len(df_desc)} tickers from KRX-DESC for Sector info")
+                # Create a map: Code -> {Sector, Industry}
+                # Use to_dict('index') matches index to row dict
+                desc_map = df_desc.set_index('Code')[['Sector', 'Industry']].to_dict('index')
+                print(f"Desc Map Size: {len(desc_map)}")
+                if desc_map:
+                     first_key = list(desc_map.keys())[0]
+                     print(f"Sample Desc Key: {first_key}, Value: {desc_map[first_key]}")
+            except Exception as e:
+                print(f"Warning: Could not fetch KRX-DESC: {e}")
+                desc_map = {}
             
             all_stocks = []
             
@@ -25,25 +40,37 @@ class StockCollector:
             for index, row in df.iterrows():
                 market = row['Market']
                 if market not in ['KOSPI', 'KOSDAQ']:
-                    # Filter only KOSPI/KOSDAQ (ignore KONEX etc if needed, but TRD says KOSPI/KOSDAQ)
-                    # FDR 'Market' column usually has KOSPI, KOSDAQ, KONEX
-                    if market not in ['KOSPI', 'KOSDAQ']:
-                        continue
+                    continue
 
                 ticker = str(row['Code'])
                 
-                # Preferred Stock Logic: 
-                # If ticker ends with '0', it's usually a Common Stock.
-                # If it ends with non-zero (e.g., '5', '7', 'K', etc.), it's a Preferred Stock.
+                # Preferred Stock Logic
                 is_preferred = not ticker.endswith('0')
+                
+                # Sector & Industry Logic: Use KRX-DESC if available
+                desc_info = desc_map.get(ticker, {})
+                sector = desc_info.get('Sector')
+                industry = desc_info.get('Industry')
+                
+                # Handle NaN
+                if pd.isna(sector): sector = None
+                if pd.isna(industry): industry = None
+
+                # Fallback for sector from 'Dept'
+                if not sector and 'Dept' in row:
+                     dept = row['Dept']
+                     if not pd.isna(dept):
+                         sector = dept
 
                 stock_data = {
                     "ticker": ticker, 
                     "name": row['Name'],
                     "market": market,
-                    "sector": row['Dept'] if 'Dept' in row else None,
+                    "sector": sector,
+                    "industry": industry,
                     "is_preferred": is_preferred,
-                    "is_active": True,
+                    # "is_active": True, # Removed simplistic assumption if needed, but let's keep True for now
+                    "is_active": not (pd.isna(row['Close']) or row['Close'] == 0), # Simple active check
                     "updated_at": datetime.utcnow().isoformat()
                 }
                 all_stocks.append(stock_data)
@@ -96,6 +123,10 @@ class StockCollector:
                 if pd.isna(row['Open']) or row['Volume'] == 0:
                     continue
 
+                # FDR columns: Close, Open, High, Low, Volume, Change (Ratio?), Marcap...
+                # Note: fdr.StockListing('KRX') columns are: 
+                # Code, ISU_CD, Name, Market, Dept, Close, ChangeCode, Changes, ChagesRatio, Open, High, Low, Volume, Amount, Marcap, Stocks, MarketId
+                
                 candle = {
                     "ticker": str(row['Code']),
                     "date": target_date, # FDR Listing doesn't return date column, assume request date
@@ -105,6 +136,8 @@ class StockCollector:
                     "close": int(row['Close']),
                     "volume": int(row['Volume']),
                     "amount": float(row['Amount']) if 'Amount' in row else 0,
+                    "change_rate": float(row['ChagesRatio']) if 'ChagesRatio' in row and not pd.isna(row['ChagesRatio']) else 0,
+                    "market_cap": int(row['Marcap']) if 'Marcap' in row and not pd.isna(row['Marcap']) else 0,
                     "created_at": datetime.utcnow().isoformat()
                 }
                 all_candles.append(candle)

@@ -27,8 +27,23 @@ def verify_data():
     except Exception as e:
         print(f"Error checking stocks: {e}")
 
+    # Check Specific Stock Sector & Industry
+    try:
+        response = supabase.table("stocks").select("ticker, name, sector, industry").eq("ticker", "005930").execute()
+        if response.data:
+            print(f"Samsung Elec Info: {response.data[0]}")
+    except Exception as e:
+        print(f"Error checking sector/industry: {e}")
+
     # Check Daily Candles
     try:
+        # Check for today's data (or latest)
+        response = supabase.table("daily_candles").select("ticker, date, close, change_rate, market_cap").order("date", desc=True).limit(1).execute()
+        if response.data:
+            print(f"Latest Candle: {response.data[0]}")
+        else:
+            print("No candles found.")
+            
         response = supabase.table("daily_candles").select("*", count="exact").limit(1).execute()
         count = response.count
         print(f"Daily Candles Table Count: {count}")

@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS stocks (
     name VARCHAR(100) NOT NULL,
     market VARCHAR(10) NOT NULL, -- KOSPI / KOSDAQ
     sector VARCHAR(100),
+    industry VARCHAR(255),
     is_preferred BOOLEAN DEFAULT FALSE,
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
@@ -18,6 +19,7 @@ COMMENT ON COLUMN stocks.ticker IS '종목 코드 (PK)';
 COMMENT ON COLUMN stocks.name IS '종목명';
 COMMENT ON COLUMN stocks.market IS '시장 구분 (KOSPI/KOSDAQ)';
 COMMENT ON COLUMN stocks.sector IS '업종/섹터';
+COMMENT ON COLUMN stocks.industry IS '주요 제품/산업 (상세)';
 COMMENT ON COLUMN stocks.is_preferred IS '우선주 여부 (True: 우선주)';
 COMMENT ON COLUMN stocks.is_active IS '거래 가능 여부 (False: 상장폐지 등)';
 COMMENT ON COLUMN stocks.created_at IS '생성 일시';
@@ -33,8 +35,10 @@ CREATE TABLE IF NOT EXISTS daily_candles (
     high NUMERIC,
     low NUMERIC,
     close NUMERIC,
+    change_rate NUMERIC,
     volume BIGINT,
-    amount NUMERIC, -- 거래대금
+    amount NUMERIC,
+    market_cap BIGINT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
     
     -- 인덱스: 종목별 날짜 조회 성능 향상
@@ -52,8 +56,10 @@ COMMENT ON COLUMN daily_candles.open IS '시가';
 COMMENT ON COLUMN daily_candles.high IS '고가';
 COMMENT ON COLUMN daily_candles.low IS '저가';
 COMMENT ON COLUMN daily_candles.close IS '종가';
+COMMENT ON COLUMN daily_candles.change_rate IS '등락률';
 COMMENT ON COLUMN daily_candles.volume IS '거래량';
 COMMENT ON COLUMN daily_candles.amount IS '거래대금';
+COMMENT ON COLUMN daily_candles.market_cap IS '시가총액';
 COMMENT ON COLUMN daily_candles.created_at IS '생성 일시';
 
 
