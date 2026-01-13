@@ -13,7 +13,8 @@ dependencies = [
     "pydantic-settings>=2.12.0",
     "pykrx>=1.0.51",
     "python-dotenv>=1.2.1",
-    "setuptools>=80.9.0",
+    "setuptools>=80.9.0,<81",
     "supabase>=2.27.1",
+    "ta-lib>=0.6.5",
     "uvicorn>=0.40.0",
 ]
