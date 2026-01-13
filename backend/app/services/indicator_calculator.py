@@ -298,16 +298,36 @@ class IndicatorCalculator:
             tickers = ticker_list
         else:
             try:
-                response = (
-                    supabase.table("stocks")
-                    .select("ticker")
-                    .eq("is_active", True)
-                    .execute()
-                )
-                tickers = [row["ticker"] for row in response.data]
+                # Supabase 기본 row limit(1000건) 대응을 위한 페이징 처리
+                all_tickers = []
+                offset = 0
+                limit = 1000
+
+                while True:
+                    response = (
+                        supabase.table("stocks")
+                        .select("ticker")
+                        .eq("is_active", True)
+                        .range(offset, offset + limit - 1)
+                        .execute()
+                    )
+
+                    if not response.data:
+                        break
+
+                    all_tickers.extend([row["ticker"] for row in response.data])
+                    offset += limit
+
+                    if len(response.data) < limit:
+                        break
+
+                tickers = all_tickers
+                print(f"Loaded {len(tickers)} active tickers from DB.")
+
             except Exception as e:
                 print(f"Error fetching ticker list: {e}")
                 return
+
 
         print(f"Processing {len(tickers)} tickers...")
 

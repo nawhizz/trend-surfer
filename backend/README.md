@@ -162,6 +162,32 @@ indicator_calculator.calculate_and_save_for_all_tickers(
 )
 ```
 
+### 과거 데이터 지표 백필 (Backfill Indicators)
+
+DB에 저장된 과거 일봉 데이터를 바탕으로 기술적 지표를 계산하여 저장합니다.
+
+```bash
+cd backend
+
+# 1. 전체 기간, 전체 종목 백필
+uv run ../scripts/backfill_indicators.py
+
+# 2. 특정 기간 백필
+uv run ../scripts/backfill_indicators.py --start 2024-01-01 --end 2024-12-31
+
+# 3. 특정 종목만 백필
+uv run ../scripts/backfill_indicators.py --ticker 005930
+```
+
+### 지표 데이터 정합성 검증 (Verify Indicators)
+
+저장된 지표 데이터의 건수를 확인하여 정합성을 검증합니다.
+
+```bash
+cd backend
+uv run ../scripts/verify_indicators.py --start 2026-01-01 --end 2026-01-13
+```
+
 ## 🗄️ 데이터베이스 스키마 (Database Schema)
 
 `Supabase` (PostgreSQL)를 사용하며 주요 테이블은 다음과 같습니다.
@@ -194,6 +220,8 @@ indicator_calculator.calculate_and_save_for_all_tickers(
 - `scripts/verify_preferred.py`: 우선주 로직 검증
 - `scripts/debug_fdr.py`: FDR 데이터 소스 디버깅
 - `test/test_indicator_calculator.py`: 이동평균 계산기 테스트
+- `scripts/backfill_indicators.py`: 지표 데이터 백필
+- `scripts/verify_indicators.py`: 지표 데이터 정합성 검증
 
 ```bash
 # DB 데이터 검증
