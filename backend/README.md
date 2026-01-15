@@ -64,7 +64,9 @@ uv run uvicorn app.main:app --reload
     - KOSPI, KOSDAQ 시장 전체 데이터 일괄 처리
 
 ### 과거 데이터 백필 (Historical Data Backfill)
-과거 데이터를 대량으로 수집하려면 `backfill_candles.py` 스크립트를 사용하세요. KRX Open API를 통해 시장 전체 데이터를 일자별로 효율적으로 수집합니다.
+과거 데이터를 대량으로 수집하려면 `backfill_candles.py` 스크립트를 사용하세요. 
+**FinanceDataReader(수정주가)**와 **KRX Open API(거래대금/시가총액)** 데이터를 병합하여, 정확하고 분석 친화적인 데이터를 구축합니다.
+- **Failover Logic**: `FinanceDataReader`가 데이터를 가져오지 못하는 종목(예: 알파벳이 포함된 종목코드 등 34여 개)에 대해서는 자동으로 **KRX Open API 데이터로 대체(Fallback)**하여 데이터 누락을 방지합니다.
 
 ```bash
 # 사용법: uv run scripts/backfill_candles.py --start [YYYY-MM-DD] --end [YYYY-MM-DD]
@@ -91,7 +93,6 @@ uv run ../scripts/update_adjusted_prices.py
 uv run ../scripts/update_adjusted_prices.py --date 20240103
 ```
 
-```
 
 ### 당일 데이터 수집 (Daily Data Collection)
 KRX Open API의 데이터 지연(T+1) 문제를 보완하기 위해, `FinanceDataReader`의 실시간 스냅샷 기능을 활용하여 **오늘(당일)** 데이터를 적재합니다.
