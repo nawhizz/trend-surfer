@@ -1,38 +1,46 @@
 """
-기술적 지표 계산기 테스트 스크립트
+기술적 지표 계산 스크립트
 
-ta-lib으로 SMA/EMA/ATR 계산 및 HIGH(기간 최고가) 계산 후 DB 저장 테스트
+개별 종목의 기술적 지표 계산 및 확인
 
 지원 지표:
 - SMA (단순이동평균): 5, 10, 20, 60, 120, 240일
 - EMA (지수이동평균): 5, 10, 20, 40, 50, 120, 200, 240일
 - ATR (평균 변동성): 20일 - 추세추종 전략 손절가/포지션 사이징용
 - HIGH (기간 최고 종가): 20일 - 추세추종 전략 돌파 신호용
+
+사용법:
+    cd backend
+    uv run ../scripts/calc_indicators.py --mode calc
+    uv run ../scripts/calc_indicators.py --mode single --ticker 005930
+    uv run ../scripts/calc_indicators.py --mode multi
+    uv run ../scripts/calc_indicators.py --mode strategy --ticker 005930
 """
 
+import argparse
 import os
 import sys
 
 # 프로젝트 루트를 path에 추가
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", "backend", ".env"))
 
 from app.services.indicator_calculator import indicator_calculator
 
 
-def test_single_ticker():
-    """단일 종목 테스트 (삼성전자) - 모든 지표 계산"""
+def calc_single_ticker(ticker: str = "005930"):
+    """단일 종목 지표 계산 및 DB 저장"""
     print("=" * 50)
-    print("단일 종목 테스트: 005930 (삼성전자)")
+    print(f"단일 종목 지표 계산: {ticker}")
     print("=" * 50)
 
-    # 1. 모든 기술적 지표 계산 (MA + EMA + ATR + HIGH)
+    # 모든 기술적 지표 계산 (MA + EMA + ATR + HIGH)
     indicators = indicator_calculator.calculate_all_indicators_for_ticker(
-        ticker="005930",
-        start_date="2025-01-01",  # 최근 1년만 저장
+        ticker=ticker,
+        start_date="2025-01-01",
         end_date=None,
     )
 
@@ -50,28 +58,22 @@ def test_single_ticker():
 
     # 샘플 출력
     if indicators:
-        print("\n--- 샘플 데이터 (처음 5개) ---")
-        for ind in indicators[:5]:
-            print(
-                f"  {ind['date']} | {ind['indicator_type']} | {ind['params']} | {ind['value']}"
-            )
-
         print("\n--- 샘플 데이터 (마지막 5개) ---")
         for ind in indicators[-5:]:
             print(
                 f"  {ind['date']} | {ind['indicator_type']} | {ind['params']} | {ind['value']}"
             )
 
-    # 2. DB 저장
+    # DB 저장
     print("\n--- DB 저장 ---")
     saved = indicator_calculator.save_indicators_to_db(indicators)
     print(f"저장 완료: {saved} records")
 
 
-def test_calculation_only():
-    """DB 저장 없이 계산만 테스트 (SMA, EMA, ATR, HIGH)"""
+def calc_test_only():
+    """DB 저장 없이 계산 로직만 테스트"""
     print("=" * 50)
-    print("계산 전용 테스트 (DB 저장 안함)")
+    print("계산 로직 테스트 (DB 저장 안함)")
     print("=" * 50)
 
     import numpy as np
@@ -109,31 +111,31 @@ def test_calculation_only():
     print(f"검증: HIGH(5)[5] = {high_5[5]} (예상: 105.0)")
 
 
-def test_multiple_tickers():
-    """여러 종목 테스트 - 모든 지표 계산"""
+def calc_multi_tickers():
+    """여러 종목 지표 계산"""
     print("=" * 50)
-    print("여러 종목 테스트")
+    print("여러 종목 지표 계산")
     print("=" * 50)
 
     # 테스트할 종목 리스트
-    test_tickers = ["005930", "000660", "035420"]  # 삼성전자, SK하이닉스, NAVER
+    tickers = ["005930", "000660", "035420"]  # 삼성전자, SK하이닉스, NAVER
 
     indicator_calculator.calculate_and_save_for_all_tickers(
         start_date="2025-01-01",
         end_date=None,
-        ticker_list=test_tickers,
+        ticker_list=tickers,
     )
 
 
-def test_strategy_indicators():
-    """추세추종 전략용 지표만 테스트 (ATR, HIGH 중심)"""
+def calc_strategy_indicators(ticker: str = "005930"):
+    """추세추종 전략용 지표만 확인 (ATR, HIGH 중심)"""
     print("=" * 50)
-    print("추세추종 전략용 지표 테스트: 005930 (삼성전자)")
+    print(f"추세추종 전략용 지표 확인: {ticker}")
     print("=" * 50)
 
     # 모든 지표 계산
     indicators = indicator_calculator.calculate_all_indicators_for_ticker(
-        ticker="005930",
+        ticker=ticker,
         start_date="2025-01-01",
         end_date=None,
     )
@@ -166,23 +168,27 @@ def test_strategy_indicators():
 
 
 if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(description="기술적 지표 계산기 테스트")
+    parser = argparse.ArgumentParser(description="기술적 지표 계산")
     parser.add_argument(
         "--mode",
         choices=["calc", "single", "multi", "strategy"],
         default="calc",
-        help="테스트 모드: calc(계산만), single(단일종목), multi(여러종목), strategy(전략용 지표)",
+        help="모드: calc(계산 테스트), single(단일종목), multi(여러종목), strategy(전략용 지표)",
+    )
+    parser.add_argument(
+        "--ticker",
+        type=str,
+        default="005930",
+        help="종목 코드 (기본값: 005930 삼성전자)",
     )
 
     args = parser.parse_args()
 
     if args.mode == "calc":
-        test_calculation_only()
+        calc_test_only()
     elif args.mode == "single":
-        test_single_ticker()
+        calc_single_ticker(args.ticker)
     elif args.mode == "multi":
-        test_multiple_tickers()
+        calc_multi_tickers()
     elif args.mode == "strategy":
-        test_strategy_indicators()
+        calc_strategy_indicators(args.ticker)

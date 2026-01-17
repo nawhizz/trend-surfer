@@ -135,3 +135,97 @@ COMMENT ON COLUMN daily_technical_indicators.created_at IS '생성 일시';
 -- BEFORE UPDATE ON stocks
 -- FOR EACH ROW
 -- EXECUTE PROCEDURE update_updated_at_column();
+
+
+-- 5. backtest_sessions (백테스트 세션)
+-- 각 백테스트 실행을 식별하는 테이블
+CREATE TABLE IF NOT EXISTS backtest_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    strategy_name VARCHAR(100) NOT NULL,      -- 전략 이름
+    start_date DATE NOT NULL,                 -- 백테스트 시작일
+    end_date DATE NOT NULL,                   -- 백테스트 종료일
+    initial_capital NUMERIC NOT NULL,         -- 초기 자본금
+    risk_per_trade NUMERIC DEFAULT 0.01,      -- 거래당 리스크 비율
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+COMMENT ON TABLE backtest_sessions IS '백테스트 세션 정보';
+COMMENT ON COLUMN backtest_sessions.id IS '백테스트 세션 ID (UUID, PK)';
+COMMENT ON COLUMN backtest_sessions.strategy_name IS '사용된 전략 이름';
+COMMENT ON COLUMN backtest_sessions.start_date IS '백테스트 시작일';
+COMMENT ON COLUMN backtest_sessions.end_date IS '백테스트 종료일';
+COMMENT ON COLUMN backtest_sessions.initial_capital IS '초기 자본금';
+COMMENT ON COLUMN backtest_sessions.risk_per_trade IS '거래당 리스크 비율';
+
+
+-- 6. backtest_trades (백테스트 매매 기록)
+-- 백테스트 중 발생한 모든 매수/매도 기록
+CREATE TABLE IF NOT EXISTS backtest_trades (
+    id SERIAL PRIMARY KEY,
+    session_id UUID NOT NULL REFERENCES backtest_sessions(id) ON DELETE CASCADE,
+    ticker VARCHAR(20) NOT NULL,
+    trade_type VARCHAR(10) NOT NULL,          -- 'BUY' 또는 'SELL'
+    trade_date DATE NOT NULL,                 -- 거래일
+    price NUMERIC NOT NULL,                   -- 거래 가격
+    shares INT NOT NULL,                      -- 수량
+    
+    -- 매수 시 설정되는 값
+    stop_loss NUMERIC,                        -- 손절가 (매수 시)
+    atr_at_entry NUMERIC,                     -- 진입 시 ATR
+    
+    -- 매도 시 설정되는 값
+    exit_reason VARCHAR(30),                  -- 청산 사유 (STOP_LOSS, TRAILING_STOP, MA_EXIT)
+    pnl NUMERIC,                              -- 손익 (원)
+    pnl_pct NUMERIC,                          -- 손익률 (%)
+    r_multiple NUMERIC,                       -- R 배수
+    
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_backtest_trades_session ON backtest_trades(session_id);
+CREATE INDEX IF NOT EXISTS idx_backtest_trades_ticker ON backtest_trades(ticker, trade_date);
+
+COMMENT ON TABLE backtest_trades IS '백테스트 매매 기록';
+COMMENT ON COLUMN backtest_trades.id IS '거래 ID (PK)';
+COMMENT ON COLUMN backtest_trades.session_id IS '백테스트 세션 ID (FK)';
+COMMENT ON COLUMN backtest_trades.ticker IS '종목 코드';
+COMMENT ON COLUMN backtest_trades.trade_type IS '거래 유형: BUY(매수) 또는 SELL(매도)';
+COMMENT ON COLUMN backtest_trades.trade_date IS '거래일';
+COMMENT ON COLUMN backtest_trades.price IS '거래 가격';
+COMMENT ON COLUMN backtest_trades.shares IS '거래 수량';
+COMMENT ON COLUMN backtest_trades.stop_loss IS '손절가 (매수 시 설정)';
+COMMENT ON COLUMN backtest_trades.atr_at_entry IS '진입 시점 ATR 값';
+COMMENT ON COLUMN backtest_trades.exit_reason IS '청산 사유';
+COMMENT ON COLUMN backtest_trades.pnl IS '손익 (원)';
+COMMENT ON COLUMN backtest_trades.pnl_pct IS '손익률 (%)';
+COMMENT ON COLUMN backtest_trades.r_multiple IS 'R 배수 (손익/1R)';
+
+
+-- 7. backtest_positions (백테스트 보유 포지션)
+-- 백테스트 중 현재 보유 중인 포지션 (매수 후 아직 매도 안된 것)
+CREATE TABLE IF NOT EXISTS backtest_positions (
+    id SERIAL PRIMARY KEY,
+    session_id UUID NOT NULL REFERENCES backtest_sessions(id) ON DELETE CASCADE,
+    ticker VARCHAR(20) NOT NULL,
+    entry_date DATE NOT NULL,
+    entry_price NUMERIC NOT NULL,
+    shares INT NOT NULL,
+    stop_loss NUMERIC NOT NULL,
+    highest_close NUMERIC NOT NULL,           -- 보유 중 최고 종가 (트레일링용)
+    atr_at_entry NUMERIC NOT NULL,
+    
+    UNIQUE (session_id, ticker)               -- 세션당 종목당 하나의 포지션만
+);
+
+CREATE INDEX IF NOT EXISTS idx_backtest_positions_session ON backtest_positions(session_id);
+
+COMMENT ON TABLE backtest_positions IS '백테스트 보유 포지션 (진행 중)';
+COMMENT ON COLUMN backtest_positions.session_id IS '백테스트 세션 ID';
+COMMENT ON COLUMN backtest_positions.ticker IS '종목 코드';
+COMMENT ON COLUMN backtest_positions.entry_date IS '진입일';
+COMMENT ON COLUMN backtest_positions.entry_price IS '진입가';
+COMMENT ON COLUMN backtest_positions.shares IS '보유 수량';
+COMMENT ON COLUMN backtest_positions.stop_loss IS '손절가';
+COMMENT ON COLUMN backtest_positions.highest_close IS '보유 중 최고 종가';
+COMMENT ON COLUMN backtest_positions.atr_at_entry IS '진입 시점 ATR';
+

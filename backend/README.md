@@ -144,17 +144,17 @@ uv run ../scripts/run_collector.py
 ```bash
 cd backend
 
-# 계산 테스트 (DB 저장 없음)
-uv run python test/test_indicator_calculator.py --mode calc
+# 계산 로직 테스트 (DB 저장 없음)
+uv run ../scripts/calc_indicators.py --mode calc
 
 # 단일 종목 (삼성전자) 계산 후 DB 저장
-uv run python test/test_indicator_calculator.py --mode single
+uv run ../scripts/calc_indicators.py --mode single --ticker 005930
 
 # 여러 종목 처리
-uv run python test/test_indicator_calculator.py --mode multi
+uv run ../scripts/calc_indicators.py --mode multi
 
 # 추세추종 전략용 지표만 확인 (ATR, HIGH 중심)
-uv run python test/test_indicator_calculator.py --mode strategy
+uv run ../scripts/calc_indicators.py --mode strategy --ticker 005930
 ```
 
 ### 코드에서 사용
@@ -185,6 +185,45 @@ indicator_calculator.calculate_and_save_for_all_tickers(
 | 20일 신고가 돌파 (`종가 > HIGH(20)`) | HIGH(20) |
 | 손절가 (`진입가 - ATR × 2.5`) | ATR(20) |
 | 트레일링 스탑 (`최고종가 - ATR × 3.0`) | ATR(20) |
+
+### 시장 필터 (Market Regime Filter)
+
+시장 전체가 역풍일 때 **신규 진입을 차단**하여 연속 손절과 계좌 변동성을 줄입니다.
+
+**규칙**: `KOSPI 종가 > KOSPI 60MA AND KOSDAQ 종가 > KOSDAQ 60MA`
+
+```bash
+cd backend
+
+# 지수 데이터 백필 (초기 1회)
+uv run ../scripts/backfill_index.py --start 2024-01-01
+
+# 시장 상태 확인 (단일 날짜)
+uv run ../scripts/check_market_filter.py --mode status --date 2026-01-16
+
+# 시장 상태 히스토리 (기간)
+uv run ../scripts/check_market_filter.py --mode range --start 2026-01-01 --end 2026-01-16
+
+# 지수 MA(60) 지표 DB 저장
+uv run ../scripts/check_market_filter.py --mode save --start 2024-01-01
+```
+
+**코드에서 사용**:
+
+```python
+from app.services.market_filter import market_filter
+
+# 특정 날짜 시장 필터 확인
+if market_filter.is_bullish("2026-01-16"):
+    print("신규 진입 허용")
+else:
+    print("신규 진입 금지")
+
+# 상세 정보 조회
+status = market_filter.get_market_status("2026-01-16")
+print(status)
+# {'kospi_close': 4840.74, 'kospi_ma60': 4145.98, 'is_bullish': True, ...}
+```
 
 ### 과거 데이터 지표 백필 (Backfill Indicators)
 
@@ -264,7 +303,90 @@ uv run ../scripts/verify_db.py
 
 이를 통해 백테스트 결과와 실제 매매 성과 간의 괴리를 최소화합니다.
 
-## 🕒 Daily Operation Flow (실운영 기준)
+## � 백테스트 엔진 (Backtest Engine)
+
+전략 백테스트를 위한 엔진입니다. Strategy 패턴을 적용하여 다양한 전략을 쉽게 추가할 수 있습니다.
+
+### 지원 전략
+
+| 전략 ID | 클래스명 | 설명 |
+|---------|----------|------|
+| `sma` | `SmaBreakoutStrategy` | SMA 정배열 (20MA > 60MA > 120MA) + 20일 신고가 돌파, 60MA 이탈 청산 |
+| `ema` | `EmaBreakoutStrategy` | EMA 정배열 (20EMA > 50EMA > 200EMA) + 20일 신고가 돌파, 20EMA 이탈 청산 |
+
+### CLI 사용법
+
+```bash
+cd backend
+
+# SMA 전략 (기본)
+uv run ../scripts/run_backtest.py --start 2025-01-01 --strategy sma
+
+# EMA 전략
+uv run ../scripts/run_backtest.py --start 2025-01-01 --strategy ema
+
+# 특정 종목만 테스트
+uv run ../scripts/run_backtest.py --start 2025-01-01 --ticker 005930,000660
+
+# 결과 CSV 출력
+uv run ../scripts/run_backtest.py --start 2025-01-01 --output ./results
+```
+
+### 옵션
+
+| 옵션 | 설명 | 기본값 |
+|------|------|--------|
+| `--start` | 시작일 (YYYY-MM-DD) | 필수 |
+| `--end` | 종료일 (YYYY-MM-DD) | 오늘 |
+| `--strategy` | 전략 선택 (sma/ema) | sma |
+| `--ticker` | 특정 종목 (쉼표 구분) | 전체 활성 종목 |
+| `--capital` | 초기 자본금 | 1억원 |
+| `--risk` | 거래당 리스크 비율 | 0.01 (1%) |
+| `--output` | CSV 출력 경로 | - |
+| `--quiet` | 상세 로그 숨기기 | - |
+
+### 파일 구조
+
+```
+backend/app/backtest/
+├── engine.py              # 백테스트 엔진
+├── portfolio.py           # 포트폴리오/포지션 관리
+├── risk_manager.py        # 리스크 관리
+├── result.py              # 결과 분석 및 통계
+├── trade_repository.py    # DB 저장소
+└── strategies/
+    ├── base.py            # 전략 인터페이스
+    ├── sma_breakout.py    # SMA 정배열 전략
+    └── ema_breakout.py    # EMA 정배열 전략
+```
+
+### 코드에서 사용
+
+```python
+from app.backtest.engine import BacktestEngine
+from app.backtest.strategies.sma_breakout import SmaBreakoutStrategy
+
+# 전략 및 엔진 생성
+strategy = SmaBreakoutStrategy()
+engine = BacktestEngine(
+    strategy=strategy,
+    initial_capital=100_000_000,
+    risk_per_trade=0.01,
+    save_to_db=True,  # DB에 매매 기록 저장
+)
+
+# 백테스트 실행
+result = engine.run(
+    start_date="2025-01-01",
+    end_date="2025-12-31",
+    tickers=["005930", "000660"],
+)
+
+print(f"최종 자산: {result['final_equity']:,.0f}원")
+print(f"거래 수: {len(result['trades'])}")
+```
+
+## �🕒 Daily Operation Flow (실운영 기준)
 
 매일 장 마감 후 시스템 운영 흐름은 다음과 같습니다.
 

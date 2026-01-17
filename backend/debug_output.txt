@@ -1,0 +1,11 @@
+Traceback (most recent call last):
+총 종목 수: 2618
+  File "<string>", line 36, in <module>
+    result = engine.run('2025-01-17', '2026-01-17', all_tickers, verbose=False)
+  File "D:\Projects\On\trend-surfer\backend\app\backtest\engine.py", line 135, in run
+    self._process_day(date, tickers, data_cache, verbose)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\On\trend-surfer\backend\app\backtest\engine.py", line 275, in _process_day
+    self.portfolio.record_daily(date, prices)
+                                      ^^^^^^
+UnboundLocalError: cannot access local variable 'prices' where it is not associated with a value
