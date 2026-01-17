@@ -95,6 +95,18 @@ uv run ../scripts/update_adjusted_prices.py
 uv run ../scripts/update_adjusted_prices.py --date 20240103
 ```
 
+### 🔧 주요 유틸리티 (Scripts)
+
+| 스크립트 | 설명 |
+|----------|------|
+| `run_backtest.py` | 전략 백테스트 실행 (SMA/EMA) |
+| `backfill_candles.py` | 과거 캔들 데이터 대량 수집 |
+| `update_adjusted_prices.py` | 수정주가 이벤트 감지 및 자동 보정 |
+| `collect_today.py` | 당일(장 마감 후) 데이터 수집 |
+| `calc_indicators.py` | 기술적 지표 수동 재계산 |
+| `verify_db.py` | 데이터 정합성 검증 (종목 수, 누락 확인) |
+| `check_market_filter.py` | 특정 날짜의 시장 필터 상태 확인 |
+
 
 ### 당일 데이터 수집 (Daily Data Collection)
 KRX Open API의 데이터 지연(T+1) 문제를 보완하기 위해, `FinanceDataReader`의 실시간 스냅샷 기능을 활용하여 **오늘(당일)** 데이터를 적재합니다.
@@ -312,7 +324,7 @@ uv run ../scripts/verify_db.py
 | 전략 ID | 클래스명 | 설명 |
 |---------|----------|------|
 | `sma` | `SmaBreakoutStrategy` | SMA 정배열 (20MA > 60MA > 120MA) + 20일 신고가 돌파, 60MA 이탈 청산 |
-| `ema` | `EmaBreakoutStrategy` | EMA 정배열 (20EMA > 50EMA > 200EMA) + 20일 신고가 돌파, 20EMA 이탈 청산 |
+| `ema` | `EmaBreakoutStrategy` | EMA 정배열 (20EMA > 50EMA > 120EMA) + 20일 신고가 돌파, 50EMA 이탈 청산 |
 
 ### CLI 사용법
 

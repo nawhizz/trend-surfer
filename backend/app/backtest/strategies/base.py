@@ -48,6 +48,7 @@ class SignalData:
     ma120: Optional[float] = None
     ema20: Optional[float] = None
     ema50: Optional[float] = None
+    ema120: Optional[float] = None
     ema200: Optional[float] = None
     atr20: Optional[float] = None
     high20: Optional[float] = None

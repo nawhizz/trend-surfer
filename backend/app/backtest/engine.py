@@ -227,6 +227,7 @@ class BacktestEngine:
                     ma120=indicators.get("MA_120"),
                     ema20=indicators.get("EMA_20"),
                     ema50=indicators.get("EMA_50"),
+                    ema120=indicators.get("EMA_120"),
                     ema200=indicators.get("EMA_200"),
                     atr20=indicators.get("ATR_20"),
                     high20=indicators.get("HIGH_20"),
