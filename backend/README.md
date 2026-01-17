@@ -128,10 +128,12 @@ uv run ../scripts/run_collector.py
 
 ### 지원 지표
 
-| 지표 | 기간 |
-|------|------|
-| **SMA (단순이동평균)** | 5, 10, 20, 60, 120, 240일 |
-| **EMA (지수이동평균)** | 5, 10, 20, 40, 50, 120, 200, 240일 |
+| 지표 | 기간 | 용도 |
+|------|------|------|
+| **SMA (단순이동평균)** | 5, 10, 20, 60, 120, 240일 | 추세 분석, 정배열 판단 |
+| **EMA (지수이동평균)** | 5, 10, 20, 40, 50, 120, 200, 240일 | 추세 분석 |
+| **ATR (평균 변동성)** | 20일 | 손절가, 포지션 사이징, 트레일링 스탑 |
+| **HIGH (기간 최고 종가)** | 20일 | 신고가 돌파 신호 (당일 제외, Look-ahead bias 방지) |
 
 ### 계산 규칙 (Calculation Rules)
 - **최소 데이터 요건**: 지표 계산을 위해 최소 `period` 이상의 데이터가 필요하며, 안정적인 값을 위해 일반적으로 더 긴 기간의 데이터를 로드하여 계산합니다.
@@ -150,6 +152,9 @@ uv run python test/test_indicator_calculator.py --mode single
 
 # 여러 종목 처리
 uv run python test/test_indicator_calculator.py --mode multi
+
+# 추세추종 전략용 지표만 확인 (ATR, HIGH 중심)
+uv run python test/test_indicator_calculator.py --mode strategy
 ```
 
 ### 코드에서 사용
@@ -169,6 +174,17 @@ indicator_calculator.calculate_and_save_for_all_tickers(
     ticker_list=["005930", "000660"]
 )
 ```
+
+### 추세추종 전략용 지표
+
+**정배열 + 20일 신고가 돌파** 전략에 필요한 지표들이 포함되어 있습니다.
+
+| 전략 규칙 | 필요 지표 |
+|-----------|----------|
+| 정배열 판단 (`20MA > 60MA > 120MA`) | MA(20), MA(60), MA(120) |
+| 20일 신고가 돌파 (`종가 > HIGH(20)`) | HIGH(20) |
+| 손절가 (`진입가 - ATR × 2.5`) | ATR(20) |
+| 트레일링 스탑 (`최고종가 - ATR × 3.0`) | ATR(20) |
 
 ### 과거 데이터 지표 백필 (Backfill Indicators)
 
@@ -227,7 +243,7 @@ uv run ../scripts/verify_indicators.py --start 2026-01-01 --end 2026-01-13
 - `scripts/verify_db.py`: 수집된 데이터(Row Count, 샘플 데이터) 검증
 - `scripts/verify_preferred.py`: 우선주 로직 검증
 - `scripts/debug_fdr.py`: FDR 데이터 소스 디버깅
-- `test/test_indicator_calculator.py`: 이동평균 계산기 테스트
+- `test/test_indicator_calculator.py`: 기술적 지표 계산기 테스트 (MA/EMA/ATR/HIGH)
 - `scripts/backfill_indicators.py`: 지표 데이터 백필
 - `scripts/verify_indicators.py`: 지표 데이터 정합성 검증
 

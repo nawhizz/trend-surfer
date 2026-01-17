@@ -82,9 +82,10 @@ INSERT INTO indicator_metadata (indicator_type, description, required_params, ou
     ('EMA', '지수 이동평균 (Exponential Moving Average)', '{"period": "int"}', 'single'),
     ('RSI', '상대강도지수 (Relative Strength Index)', '{"period": "int"}', 'single'),
     ('MACD', 'MACD (Moving Average Convergence Divergence)', '{"short": "int", "long": "int", "signal": "int"}', 'multiple'),
-    ('BB', '볼린저 밴드 (Bollinger Bands)', '{"period": "int", "std": "float"}', 'multiple')
+    ('BB', '볼린저 밴드 (Bollinger Bands)', '{"period": "int", "std": "float"}', 'multiple'),
+    ('ATR', '평균 변동성 지표 (Average True Range)', '{"period": "int"}', 'single'),
+    ('HIGH', '기간 내 최고 종가 (Period High Close)', '{"period": "int"}', 'single')
 ON CONFLICT (indicator_type) DO NOTHING;
-
 
 -- 4. daily_technical_indicators (기술적 지표 - 파라미터 기반)
 -- 유연한 구조로 새 지표/파라미터 추가 시 스키마 변경 불필요

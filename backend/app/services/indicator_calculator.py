@@ -5,6 +5,8 @@ ta-lib 패키지를 사용하여 다양한 기술적 지표를 계산하고 DB�
 현재 지원 지표:
 - SMA (단순이동평균): 5, 10, 20, 60, 120, 240일
 - EMA (지수이동평균): 5, 10, 20, 40, 50, 120, 200, 240일
+- ATR (평균 변동성): 20일
+- HIGH (기간 최고 종가): 20일 (당일 제외, 과거 N일 기준)
 """
 
 import json
@@ -24,6 +26,10 @@ class IndicatorCalculator:
     # 계산할 이동평균 기간 설정
     SMA_PERIODS = [5, 10, 20, 60, 120, 240]
     EMA_PERIODS = [5, 10, 20, 40, 50, 120, 200, 240]
+    
+    # 추세추종 전략용 지표 기간 설정
+    ATR_PERIODS = [20]   # 손절가, 포지션 사이징, 트레일링 스탑용
+    HIGH_PERIODS = [20]  # 20일 신고가 돌파 신호용
 
     def __init__(self):
         pass
@@ -59,6 +65,75 @@ class IndicatorCalculator:
         return talib.EMA(close_prices, timeperiod=period)
 
     # ========================================
+    # ATR (Average True Range) 계산
+    # ========================================
+
+    def calculate_atr(
+        self,
+        high: np.ndarray,
+        low: np.ndarray,
+        close: np.ndarray,
+        period: int,
+    ) -> np.ndarray:
+        """
+        ATR (Average True Range) 계산
+        
+        True Range는 다음 세 값 중 최댓값:
+        - |고가 - 저가|
+        - |고가 - 전일 종가|
+        - |저가 - 전일 종가|
+        
+        ATR = True Range의 N일 이동평균
+
+        Args:
+            high: 고가 배열 (오래된 날짜 → 최신 날짜 순서)
+            low: 저가 배열
+            close: 종가 배열
+            period: ATR 기간
+
+        Returns:
+            ATR 값 배열 (앞부분은 NaN)
+        """
+        return talib.ATR(high, low, close, timeperiod=period)
+
+    # ========================================
+    # 기간 최고 종가 (Period High Close) 계산
+    # ========================================
+
+    def calculate_period_high(
+        self,
+        close_prices: np.ndarray,
+        period: int,
+    ) -> np.ndarray:
+        """
+        기간 내 최고 종가 계산 (당일 제외, 과거 N일 기준)
+        
+        백테스팅 시 Look-ahead bias 방지를 위해
+        당일 종가는 제외하고 "과거 N일"의 최고 종가를 반환합니다.
+        
+        예: HIGH(20)의 경우
+        - 오늘 날짜: t
+        - 계산 대상: close[t-20] ~ close[t-1] 중 최댓값
+        
+        진입 조건: "오늘 종가 > HIGH(20)" → 20일 신고가 돌파
+
+        Args:
+            close_prices: 종가 배열 (오래된 날짜 → 최신 날짜 순서)
+            period: 기간 (일)
+
+        Returns:
+            기간 최고 종가 배열 (앞부분은 NaN)
+        """
+        result = np.full(len(close_prices), np.nan)
+        
+        # period일 이후부터 계산 가능 (당일 제외이므로 period+1번째 데이터부터)
+        for i in range(period, len(close_prices)):
+            # 당일(i) 제외, 과거 period일간의 최고 종가
+            result[i] = np.max(close_prices[i - period : i])
+        
+        return result
+
+    # ========================================
     # 데이터 조회 함수
     # ========================================
 
@@ -77,11 +152,11 @@ class IndicatorCalculator:
             end_date: 종료일 (YYYY-MM-DD), None이면 전체
 
         Returns:
-            일봉 DataFrame (date, close 컬럼 포함)
+            일봉 DataFrame (date, open, high, low, close 컬럼 포함)
         """
         query = (
             supabase.table("daily_candles")
-            .select("date, close")
+            .select("date, open, high, low, close")
             .eq("ticker", ticker)
             .order("date", desc=False)  # 오래된 날짜부터 정렬 (ta-lib 입력 순서)
         )
@@ -113,6 +188,9 @@ class IndicatorCalculator:
 
         if not df.empty:
             df["date"] = pd.to_datetime(df["date"]).dt.date
+            df["open"] = pd.to_numeric(df["open"], errors="coerce")
+            df["high"] = pd.to_numeric(df["high"], errors="coerce")
+            df["low"] = pd.to_numeric(df["low"], errors="coerce")
             df["close"] = pd.to_numeric(df["close"], errors="coerce")
 
         return df
@@ -189,7 +267,114 @@ class IndicatorCalculator:
                 )
             )
 
-        print(f"Calculated {len(indicators)} indicator records for {ticker}")
+        print(f"Calculated {len(indicators)} MA/EMA records for {ticker}")
+        return indicators
+
+    def calculate_all_indicators_for_ticker(
+        self,
+        ticker: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> list[dict]:
+        """
+        특정 종목의 모든 기술적 지표 계산 (MA + EMA + ATR + HIGH)
+        
+        추세추종 전략 백테스팅에 필요한 모든 지표를 한 번에 계산합니다.
+
+        Args:
+            ticker: 종목 코드
+            start_date: 계산 시작일 (YYYY-MM-DD)
+            end_date: 계산 종료일 (YYYY-MM-DD)
+
+        Returns:
+            계산된 지표 딕셔너리 리스트
+        """
+        print(f"[{datetime.now()}] Calculating all indicators for {ticker}...")
+
+        # 1. 일봉 데이터 조회 (OHLC 전체)
+        # 가장 긴 기간(240일)을 고려하여 충분한 과거 데이터 조회
+        df = self.fetch_candles(ticker, start_date=None, end_date=end_date)
+
+        if df.empty:
+            print(f"No candle data found for {ticker}")
+            return []
+
+        # 최소 데이터 수 체크
+        required_periods = max(
+            self.SMA_PERIODS + self.EMA_PERIODS + self.ATR_PERIODS + self.HIGH_PERIODS
+        )
+        if len(df) < required_periods:
+            print(
+                f"Warning: Insufficient data for {ticker}: {len(df)} rows "
+                f"(recommended: {required_periods}). Calculating available indicators."
+            )
+
+        # 2. numpy 배열로 변환
+        dates = df["date"].values
+        open_prices = df["open"].values.astype(np.float64)
+        high_prices = df["high"].values.astype(np.float64)
+        low_prices = df["low"].values.astype(np.float64)
+        close_prices = df["close"].values.astype(np.float64)
+
+        indicators = []
+
+        # 3. SMA 계산
+        for period in self.SMA_PERIODS:
+            sma_values = self.calculate_sma(close_prices, period)
+            indicators.extend(
+                self._build_indicator_records(
+                    ticker=ticker,
+                    dates=dates,
+                    values=sma_values,
+                    indicator_type="MA",
+                    params={"period": period},
+                    start_date=start_date,
+                )
+            )
+
+        # 4. EMA 계산
+        for period in self.EMA_PERIODS:
+            ema_values = self.calculate_ema(close_prices, period)
+            indicators.extend(
+                self._build_indicator_records(
+                    ticker=ticker,
+                    dates=dates,
+                    values=ema_values,
+                    indicator_type="EMA",
+                    params={"period": period},
+                    start_date=start_date,
+                )
+            )
+
+        # 5. ATR 계산 (추세추종 전략용)
+        for period in self.ATR_PERIODS:
+            atr_values = self.calculate_atr(high_prices, low_prices, close_prices, period)
+            indicators.extend(
+                self._build_indicator_records(
+                    ticker=ticker,
+                    dates=dates,
+                    values=atr_values,
+                    indicator_type="ATR",
+                    params={"period": period},
+                    start_date=start_date,
+                )
+            )
+
+        # 6. 기간 최고 종가 계산 (추세추종 전략용 - 20일 신고가 돌파 신호)
+        for period in self.HIGH_PERIODS:
+            high_values = self.calculate_period_high(close_prices, period)
+            indicators.extend(
+                self._build_indicator_records(
+                    ticker=ticker,
+                    dates=dates,
+                    values=high_values,
+                    indicator_type="HIGH",
+                    params={"period": period},
+                    start_date=start_date,
+                )
+            )
+
+        print(f"Calculated {len(indicators)} total indicator records for {ticker}")
         return indicators
 
     def _build_indicator_records(
@@ -334,8 +519,8 @@ class IndicatorCalculator:
         # 2. 종목별 처리
         for idx, ticker in enumerate(tickers):
             try:
-                # 이동평균 계산
-                indicators = self.calculate_all_ma_for_ticker(
+                # 모든 기술적 지표 계산 (MA + EMA + ATR + HIGH)
+                indicators = self.calculate_all_indicators_for_ticker(
                     ticker, start_date, end_date
                 )
 
