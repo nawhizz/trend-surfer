@@ -81,6 +81,24 @@ class BacktestEngine:
         
         # 손절 발생 당일 재진입 금지를 위한 추적
         self.stopped_out_today: set[str] = set()
+        
+        # ========================================
+        # 고급 기능: 재진입, 불타기, Kill Switch
+        # ========================================
+        
+        # 재진입용: 종목별 마지막 청산 정보
+        # {ticker: {"exit_date": str, "exit_reason": str, "exit_price": float}}
+        self.last_exit_info: dict[str, dict] = {}
+        
+        # Kill Switch용: 최근 10회 거래 결과 (True=승리, False=실패)
+        self.recent_trade_results: list[bool] = []
+        
+        # Kill Switch 활성화 상태
+        self.kill_switch_active: bool = False
+        
+        # 불타기용: 현재 오픈 리스크 (R 단위)
+        # 포지션별로 추적하여 합산
+        self.total_open_risk_r: float = 0.0
 
     def run(
         self,
@@ -134,9 +152,20 @@ class BacktestEngine:
         for date in trading_days:
             self._process_day(date, tickers, data_cache, verbose)
 
+        # 종료 시점 강제 청산 (남은 포지션 정리)
+        # 마지막 거래일 기준 종가로 청산
+        if trading_days:
+            last_date = trading_days[-1]
+            # data_cache는 이미 로드된 상태이므로 그대로 사용 가능
+            # 단, _process_day에서 사용된 것과 동일한 구조여야 함
+            if verbose:
+                print(f"\n[{last_date}] 🛑 백테스트 종료: 남은 포지션 강제 청산 진행")
+            self._close_all_positions(last_date, data_cache, verbose)
+
         # 결과 정리
         result = self._generate_result(start_date, end_date, verbose)
         return result
+
 
     def _get_trading_days(self, start_date: str, end_date: str) -> list[str]:
         """거래일 목록 조회"""
@@ -163,32 +192,64 @@ class BacktestEngine:
         data_cache = {}
 
         for ticker in tickers:
-            # 일봉 데이터 조회
-            candles_resp = (
-                supabase.table("daily_candles")
-                .select("date, open, high, low, close, volume")
-                .eq("ticker", ticker)
-                .gte("date", start_date)
-                .lte("date", end_date)
-                .order("date")
-                .execute()
-            )
+            # 일봉 데이터 조회 (Pagination)
+            candles_data = []
+            offset = 0
+            limit = 1000  # Supabase default max limit is often 1000
+            while True:
+                resp = (
+                    supabase.table("daily_candles")
+                    .select("date, open, high, low, close, volume")
+                    .eq("ticker", ticker)
+                    .gte("date", start_date)
+                    .lte("date", end_date)
+                    .order("date")
+                    .range(offset, offset + limit - 1)
+                    .execute()
+                )
+                data_chunk = resp.data or []
+                candles_data.extend(data_chunk)
+                if len(data_chunk) < limit:
+                    break
+                offset += limit
 
-            # 지표 데이터 조회
-            indicators_resp = (
-                supabase.table("daily_technical_indicators")
-                .select("date, indicator_type, params, value")
-                .eq("ticker", ticker)
-                .gte("date", start_date)
-                .lte("date", end_date)
-                .execute()
-            )
+            # 지표 데이터 조회 (Pagination)
+            indicators_data = []
+            offset = 0
+            limit = 1000 # Supabase default max params
+            while True:
+                resp = (
+                    supabase.table("daily_technical_indicators")
+                    .select("date, indicator_type, params, value")
+                    .eq("ticker", ticker)
+                    .gte("date", start_date)
+                    .lte("date", end_date)
+                    .range(offset, offset + limit - 1)
+                    .execute()
+                )
+                data_chunk = resp.data or []
+                indicators_data.extend(data_chunk)
+                if len(data_chunk) < limit:
+                    break
+                offset += limit
+
+            # 지표 데이터 통계 출력
+            print(f"DEBUG: Loaded {len(indicators_data)} indicators for {ticker}")
+            
+            from collections import Counter
+            type_counts = Counter(row['indicator_type'] for row in indicators_data)
+            print(f"DEBUG: Indicator Types: {type_counts}")
+            
+            # HIGH 타입 상세 확인
+            high_params = [row['params'] for row in indicators_data if row['indicator_type'] == 'HIGH'][:5]
+            print(f"DEBUG: Sample HIGH params: {high_params}")
 
             # 지표 데이터 정리
             indicators_map = {}
-            for row in indicators_resp.data or []:
+            for row in indicators_data:
                 date = row["date"]
                 ind_type = row["indicator_type"]
+                # ...
                 params = row["params"]
                 value = row["value"]
 
@@ -199,7 +260,11 @@ class BacktestEngine:
                     try:
                         params = json.loads(params)
                     except json.JSONDecodeError:
-                        params = {}
+                        try:
+                            import ast
+                            params = ast.literal_eval(params)
+                        except:
+                            params = {}
                 
                 if isinstance(params, dict):
                     period = params.get("period", "")
@@ -211,7 +276,7 @@ class BacktestEngine:
 
             # SignalData로 변환
             ticker_data = {}
-            for candle in candles_resp.data or []:
+            for candle in candles_data:
                 date = candle["date"]
                 indicators = indicators_map.get(date, {})
 
@@ -269,6 +334,10 @@ class BacktestEngine:
             # 5. 신규 진입 시그널 스캔
             if is_market_ok:
                 self._scan_entry_signals(date, tickers, data_cache, verbose)
+            
+            # 6. 불타기 시그널 스캔 (기존 포지션에 대해)
+            if is_market_ok:
+                self._scan_pyramid_signals(date, data_cache, verbose)
 
             # 6. 일별 기록용 가격 수집
             for ticker in tickers:
@@ -446,7 +515,29 @@ class BacktestEngine:
 
             if reason == "STOP_LOSS":
                 self.stopped_out_today.add(ticker)
-
+            
+            # 고급 기능: 재진입용 마지막 청산 정보 저장
+            self.last_exit_info[ticker] = {
+                "exit_date": date,
+                "exit_reason": reason,
+                "exit_price": price,
+            }
+            
+            # 고급 기능: Kill Switch용 거래 결과 기록
+            is_win = trade.pnl > 0 if trade else False
+            self.recent_trade_results.append(is_win)
+            if len(self.recent_trade_results) > 10:
+                self.recent_trade_results.pop(0)
+            
+            # Kill Switch 조건 체크: 10회 중 8회 실패
+            if len(self.recent_trade_results) >= 10:
+                fail_count = sum(1 for r in self.recent_trade_results if not r)
+                if fail_count >= 8 and not self.kill_switch_active:
+                    self.kill_switch_active = True
+                    if verbose:
+                        print(f"[{date}] ⚠️ Kill Switch 활성화 (10회 중 {fail_count}회 실패)")
+            
+            # 리스크 매니저 업데이트
             if trade:
                 is_stop = reason == "STOP_LOSS"
                 self.risk_manager.on_trade_exit(
@@ -463,6 +554,17 @@ class BacktestEngine:
         verbose: bool,
     ):
         """신규 진입 시그널 스캔 → 대기 큐에 추가"""
+        # Kill Switch 활성화 시 신규 진입 차단
+        if self.kill_switch_active:
+            return
+        
+        # 계좌 DD 15% 이상 시 신규 진입 차단
+        current_dd = self.risk_manager.check_drawdown(self.portfolio.equity)
+        if current_dd >= 0.15:
+            if verbose:
+                print(f"[{date}] ⚠️ 계좌 DD {current_dd*100:.1f}% - 신규 진입 차단")
+            return
+        
         for ticker in tickers:
             if self.portfolio.has_position(ticker):
                 continue
@@ -471,6 +573,10 @@ class BacktestEngine:
                 continue
             
             if ticker in self.stopped_out_today:
+                continue
+            
+            # 재진입 조건 체크
+            if not self._check_reentry_allowed(ticker, date, verbose):
                 continue
 
             data = data_cache.get(ticker, {}).get(date)
@@ -529,3 +635,184 @@ class BacktestEngine:
             "daily_records": self.portfolio.daily_records,
             "risk_state": self.risk_manager.get_state_summary(),
         }
+
+    def _check_reentry_allowed(
+        self,
+        ticker: str,
+        current_date: str,
+        verbose: bool,
+    ) -> bool:
+        """
+        재진입 허용 여부 확인
+        
+        규칙:
+        1. 이전 청산이 트레일링 스탑(TRAILING_STOP)인 경우에만 허용
+        2. 청산 후 최소 5거래일 대기
+        
+        Returns:
+            True: 진입 허용 (첫 진입 또는 재진입 조건 충족)
+            False: 재진입 금지
+        """
+        # 이전 청산 기록이 없으면 첫 진입이므로 허용
+        if ticker not in self.last_exit_info:
+            return True
+        
+        exit_info = self.last_exit_info[ticker]
+        exit_date = exit_info["exit_date"]
+        exit_reason = exit_info["exit_reason"]
+        
+        # 트레일링 스탑 청산만 재진입 허용
+        if exit_reason != "TRAILING_STOP":
+            return False
+        
+        # 5거래일 대기 확인 (전략별 파라미터 적용)
+        cooldown = getattr(self.strategy, "RE_ENTRY_COOLDOWN", 5)
+        days_since_exit = self._count_trading_days(exit_date, current_date)
+        if days_since_exit < cooldown:
+            return False
+        
+        return True
+
+    def _count_trading_days(self, start_date: str, end_date: str) -> int:
+        """두 날짜 사이의 거래일 수 계산"""
+        response = (
+            supabase.table("daily_candles")
+            .select("date")
+            .eq("ticker", "KS11")
+            .gt("date", start_date)  # start_date 제외
+            .lte("date", end_date)
+            .execute()
+        )
+        return len(response.data) if response.data else 0
+
+    def _scan_pyramid_signals(
+        self,
+        date: str,
+        data_cache: dict,
+        verbose: bool,
+    ):
+        """
+        불타기 시그널 스캔 (기존 포지션에 대해)
+        
+        TrendFollowingStrategy의 check_pyramid_signal이 있는 경우에만 작동합니다.
+        """
+        # TrendFollowingStrategy만 불타기 지원
+        if not hasattr(self.strategy, 'check_pyramid_signal'):
+            return
+        
+        for position in self.portfolio.positions:
+            ticker = position.ticker
+            data = data_cache.get(ticker, {}).get(date)
+            
+            if not data or not data.atr20:
+                continue
+            
+            # 현재 MFE (R 단위) 계산
+            r_unit = position.entry_price - position.initial_stop
+            if r_unit <= 0:
+                continue
+            
+            current_mfe_r = (data.close - position.entry_price) / r_unit
+            
+            # 새 손절폭 계산
+            new_stop = self.strategy.calculate_stop_loss(data.close, data.atr20)
+            new_r_unit = data.close - new_stop
+            
+            # 총 오픈 리스크 계산 (R 단위)
+            one_r_amount = self.portfolio.equity * self.risk_per_trade
+            total_open_risk_r = self.portfolio.total_risk / one_r_amount if one_r_amount > 0 else 0
+            
+            # 불타기 시그널 체크
+            if self.strategy.check_pyramid_signal(
+                ticker=ticker,
+                data=data,
+                current_mfe_r=current_mfe_r,
+                current_r_unit=r_unit,
+                new_r_unit=new_r_unit,
+                total_open_risk_r=total_open_risk_r,
+            ):
+                # 불타기 수량 계산
+                shares = self.strategy.calculate_pyramid_size(
+                    capital=self.portfolio.equity,
+                    risk_pct=self.risk_per_trade,
+                    entry_price=data.close,
+                    stop_loss=new_stop,
+                    total_open_risk_r=total_open_risk_r,
+                )
+                
+                if shares <= 0:
+                    continue
+                
+                # 현금 확인
+                cost = data.close * shares
+                if cost > self.portfolio.cash:
+                    shares = int(self.portfolio.cash / data.close)
+                    if shares <= 0:
+                        continue
+                
+                # 불타기 진입 (새로운 포지션으로 처리)
+                try:
+                    self.portfolio.open_position(
+                        ticker=f"{ticker}_P",  # 불타기 포지션 구분
+                        date=date,
+                        price=data.close,
+                        shares=shares,
+                        stop_loss=new_stop,
+                        atr=data.atr20,
+                    )
+                    
+                    if verbose:
+                        print(f"[{date}] 🔥 불타기: {ticker} @ {data.close:,.0f} x {shares}주 "
+                              f"(MFE: +{current_mfe_r:.1f}R)")
+                except ValueError as e:
+                    if verbose:
+                        print(f"[{date}] 불타기 실패: {ticker} - {e}")
+
+    def _close_all_positions(self, date: str, data_cache: dict, verbose: bool):
+        """
+        백테스트 종료 시 남은 모든 포지션 강제 청산
+        
+        Args:
+            date: 청산 기준일 (마지막 거래일)
+            data_cache: 종목별 데이터 캐시
+            verbose: 상세 출력 여부
+        """
+        if not self.portfolio.positions:
+            return
+
+        # 리스트 복사하여 순회 (순회 중 삭제되므로)
+        for position in list(self.portfolio.positions):
+            ticker = position.ticker
+            
+            # 현재가 가져오기
+            price = position.highest_close # 기본값
+            
+            # 데이터 캐시에서 해당 날짜 종가 찾기 시도
+            if ticker in data_cache and date in data_cache[ticker]:
+                price = data_cache[ticker][date].close
+            
+            # 강제 청산 실행 (FORCE_EXIT)
+            trade = self.portfolio.close_position(
+                ticker=ticker,
+                date=date,
+                price=price,
+                reason="FORCE_EXIT"
+            )
+            
+            if trade:
+                if verbose:
+                    print(f"[{date}] 🛑 강제 청산: {ticker} @ {price:,.0f} (PnL: {trade.pnl:+,.0f})")
+                
+                # DB 저장
+                if self.save_to_db and self.trade_repo:
+                    self.trade_repo.record_sell(
+                        ticker=trade.ticker,
+                        trade_date=trade.exit_date,
+                        price=trade.exit_price,
+                        shares=trade.shares,
+                        exit_reason=trade.exit_reason,
+                        pnl=trade.pnl,
+                        pnl_pct=trade.pnl_pct,
+                        r_multiple=trade.r_multiple,
+                    )
+

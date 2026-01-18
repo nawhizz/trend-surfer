@@ -17,6 +17,7 @@ def main():
     parser = argparse.ArgumentParser(description='Backfill historical daily candles (Hybrid: FDR Adjusted + KRX Amount).')
     parser.add_argument('--start', required=True, help='Start date (YYYY-MM-DD)')
     parser.add_argument('--end', required=True, help='End date (YYYY-MM-DD)')
+    parser.add_argument('--ticker', help='Specific ticker code (optional, comma separated)')
     
     args = parser.parse_args()
 
@@ -28,9 +29,14 @@ def main():
         print("Error: Dates must be in YYYY-MM-DD format.")
         sys.exit(1)
 
+    ticker_list = None
+    if args.ticker:
+        ticker_list = [t.strip() for t in args.ticker.split(',')]
+        print(f"Target Tickers: {ticker_list}")
+
     print(f"Starting Hybrid Backfill from {args.start} to {args.end}...")
     
-    hybrid_collector.backfill_hybrid(args.start, args.end)
+    hybrid_collector.backfill_hybrid(args.start, args.end, ticker_list)
     print("Backfill process completed.")
 
 if __name__ == "__main__":

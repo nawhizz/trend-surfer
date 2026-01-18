@@ -43,7 +43,12 @@ class TrendFollowingStrategy(BaseStrategy):
     EMA_SLOPE_EXIT_THRESHOLD = -0.3    # 청산 조건 기울기 하한
     
     # ATR 과열 임계값
-    ATR_OVERHEAT_THRESHOLD = 0.08  # ATR/종가 > 8% 이면 과열
+    # ATR 과열 임계값
+    # ATR 과열 임계값
+    ATR_OVERHEAT_THRESHOLD = 0.15  # ATR/종가 > 15% 이면 과열 (기존 10%에서 상향)
+    
+    # 재진입 쿨타임 (청산 후 재진입 대기 일수)
+    RE_ENTRY_COOLDOWN = 3
     
     # EMA 연속 이탈 일수
     EMA_BELOW_DAYS_THRESHOLD = 2
@@ -65,8 +70,10 @@ class TrendFollowingStrategy(BaseStrategy):
         2. 지수 EMA50 기울기 ≥ -0.2 (구조 붕괴 아님)
         """
         # 기본 시장 필터: 지수가 60MA 위에 있는지
-        if not market_filter.is_bullish(date):
-            return False
+        # 기본 시장 필터: 지수가 60MA 위에 있는지
+        # [튜닝] 2026-01-18: 진입 기회 확대를 위해 MA60 필터 제거 (EMA 구조 필터만 사용)
+        # if not market_filter.is_bullish(date):
+        #     return False
         
         # 추가 필터: 지수 EMA50 구조 확인
         if not market_filter.is_index_structure_ok(date, self.EMA_SLOPE_ENTRY_THRESHOLD):
@@ -202,5 +209,115 @@ class TrendFollowingStrategy(BaseStrategy):
         
         # 매수 수량
         shares = int(risk_amount / r_unit)
+        
+        return max(0, shares)
+
+    # ========================================
+    # 불타기 (Pyramiding)
+    # ========================================
+
+    # 불타기 파라미터
+    PYRAMID_MFE_THRESHOLD = 1.0  # 기존 포지션 MFE >= +1R
+    PYRAMID_MAX_TOTAL_RISK = 2.0  # 총 오픈 리스크 <= 2R
+    PYRAMID_RISK_PER_ADD = 0.5   # 불타기당 최대 0.5R
+
+    def check_pyramid_signal(
+        self,
+        ticker: str,
+        data: SignalData,
+        current_mfe_r: float,
+        current_r_unit: float,
+        new_r_unit: float,
+        total_open_risk_r: float,
+    ) -> bool:
+        """
+        불타기 시그널 확인
+        
+        조건 (모두 충족):
+        1. 기존 포지션 MFE >= +1R
+        2. 추가 진입의 손절폭(1R₂) < 기존 손절폭(1R₁)
+        3. 10일 고점 돌파 또는 20일 고점 재갱신
+        4. 총 오픈 리스크 <= 2R
+        
+        Args:
+            ticker: 종목 코드
+            data: 시그널 데이터
+            current_mfe_r: 기존 포지션의 현재 MFE (R 단위)
+            current_r_unit: 기존 포지션의 1R (손절폭)
+            new_r_unit: 추가 진입 시 1R (새 손절폭)
+            total_open_risk_r: 현재 총 오픈 리스크 (R 단위)
+        
+        Returns:
+            True: 불타기 허용
+            False: 불타기 금지
+        """
+        # 필수 지표 확인
+        if not all([data.high10, data.high20, data.atr20]):
+            return False
+        
+        # 조건 1: MFE >= +1R
+        if current_mfe_r < self.PYRAMID_MFE_THRESHOLD:
+            return False
+        
+        # 조건 2: 새 손절폭 < 기존 손절폭
+        if new_r_unit >= current_r_unit:
+            return False
+        
+        # 조건 3: 10일 또는 20일 고점 돌파
+        is_high10_break = data.close > data.high10
+        is_high20_break = data.close > data.high20
+        if not (is_high10_break or is_high20_break):
+            return False
+        
+        # 조건 4: 총 리스크 2R 이하
+        if total_open_risk_r >= self.PYRAMID_MAX_TOTAL_RISK:
+            return False
+        
+        return True
+
+    def calculate_pyramid_size(
+        self,
+        capital: float,
+        risk_pct: float,
+        entry_price: float,
+        stop_loss: float,
+        total_open_risk_r: float,
+    ) -> int:
+        """
+        불타기 포지션 크기 계산
+        
+        불타기 리스크 = min(0.5R, 2R - 현재 오픈 리스크)
+        
+        Args:
+            capital: 사용 가능 자본
+            risk_pct: 기본 리스크 비율 (1R)
+            entry_price: 진입가
+            stop_loss: 손절가
+            total_open_risk_r: 현재 총 오픈 리스크 (R 단위)
+        
+        Returns:
+            매수 수량 (정수)
+        """
+        if entry_price <= stop_loss:
+            return 0
+        
+        # 불타기 리스크 계산
+        remaining_risk_r = self.PYRAMID_MAX_TOTAL_RISK - total_open_risk_r
+        pyramid_risk_r = min(self.PYRAMID_RISK_PER_ADD, remaining_risk_r)
+        
+        if pyramid_risk_r <= 0:
+            return 0
+        
+        # 1R 금액
+        one_r_amount = capital * risk_pct
+        
+        # 불타기 리스크 금액
+        pyramid_risk_amount = one_r_amount * pyramid_risk_r
+        
+        # 주당 리스크
+        r_unit = entry_price - stop_loss
+        
+        # 매수 수량
+        shares = int(pyramid_risk_amount / r_unit)
         
         return max(0, shares)

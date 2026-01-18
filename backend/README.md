@@ -71,11 +71,14 @@ uv run uvicorn app.main:app --reload
 - **Failover Logic**: `FinanceDataReader`가 데이터를 가져오지 못하는 종목(예: 알파벳이 포함된 종목코드 등 34여 개)에 대해서는 자동으로 **KRX Open API 데이터로 대체(Fallback)**하여 데이터 누락을 방지합니다.
 
 ```bash
-# 사용법: uv run scripts/backfill_candles.py --start [YYYY-MM-DD] --end [YYYY-MM-DD]
+# 사용법: uv run scripts/backfill_candles.py --start [YYYY-MM-DD] --end [YYYY-MM-DD] [--ticker 종목코드,종목코드]
 
-# 예: 2024년 1월 데이터 백필 (backend 디렉토리에서 실행)
+# 예 1: 2024년 1월, 전체 종목 백필 (backend 디렉토리에서 실행)
 cd backend
 uv run ../scripts/backfill_candles.py --start 2024-01-01 --end 2024-01-31
+
+# 예 2: 특정 종목(알테오젠, SK하이닉스)만 2년치 백필
+uv run ../scripts/backfill_candles.py --start 2024-01-01 --end 2026-01-18 --ticker 196170,000660
 ```
 
 ### 수정주가 관리 (Adjusted Price Management)
@@ -148,6 +151,16 @@ uv run ../scripts/run_collector.py
 | **HIGH (기간 최고 종가)** | 10, 20일 | 신고가 돌파/불타기 신호 (당일 제외) |
 | **EMA_SLOPE (EMA 기울기)** | 50일 | 추세 구조 필터 (ATR 정규화) |
 | **RSI (상대강도지수)** | 14일 | 과매수/과매도 판단 |
+
+### 현재 데이터 적재 현황
+
+| 데이터 | 기간 |
+|--------|------|
+| **일봉 (daily_candles)** | 2020-01-01 ~ 2026-01-16 |
+| **기술적 지표 (daily_technical_indicators)** | 2020-01-08 ~ 2026-01-16 |
+| **지수 지표 (KS11, KQ11)** | 2020-01-08 ~ 2026-01-16 |
+
+> **Note**: 지표 시작일이 일봉보다 늦은 이유는 MA/EMA 등 지표 계산에 최소 5~20일의 과거 데이터가 필요하기 때문입니다.
 
 ### 계산 규칙 (Calculation Rules)
 - **최소 데이터 요건**: 지표 계산을 위해 최소 `period` 이상의 데이터가 필요하며, 안정적인 값을 위해 일반적으로 더 긴 기간의 데이터를 로드하여 계산합니다.
@@ -334,7 +347,23 @@ uv run ../scripts/verify_db.py
 | `sma` | `SmaBreakoutStrategy` | SMA 정배열 (20MA > 60MA > 120MA) + 20일 신고가 돌파, 60MA 이탈 청산 |
 | `ema` | `EmaBreakoutStrategy` | EMA 정배열 (20EMA > 50EMA > 120EMA) + 20일 신고가 돌파, 50EMA 이탈 청산 |
 | `rsi` | `RsiSwingStrategy` | RSI 스윙: 중기 상승(>60MA) 눌림목(RSI<45) 매수, 과매수(RSI>70) 또는 10일 후 청산 |
-| `trend` | `TrendFollowingStrategy` | **추세추종 (추천)**: 20일 신고가 + 50EMA 기울기 필터 + ATR 트레일링 |
+| `trend` | `TrendFollowingStrategy` | **추세추종 (추천)**: 20일 신고가 + 50EMA 필터 + ATR 트레일링 + 고급 기능 |
+
+### 추세추종 전략 (TrendFollowingStrategy) - **Recommended**
+
+"맞추는 전략이 아니라, 살아남아 주도주의 대시세를 끝까지 먹는 전략"입니다. 승률(40~50%)은 낮아도 압도적인 손익비(3.0 이상)로 수익을 냅니다.
+
+**핵심 로직**:
+- **진입**: `20일 신고가 돌파` + `50EMA 상승 추세` + `ATR 변동성 필터`
+- **청산**: `ATR 트레일링 스탑` (수익 보존) 또는 `EMA 구조 붕괴` (추세 이탈)
+- **자금 관리**: `1R 리스크 관리` (거래당 자산의 1% 손실 제한), `불타기` (이익 극대화)
+
+| 기능 | 규칙 | 튜닝 현황 (2026.01) |
+|------|------|-------------------|
+| **재진입** | 트레일링 청산 후 조정 거치고 재돌파 시 진입 | **쿨타임 3일** (기존 5일에서 단축) |
+| **불타기** | MFE ≥ +1R, 신고가 갱신 시 추가 진입 (리스크 절반) | 최대 3회 분할 진입 |
+| **Kill Switch** | 최근 10회 중 8회 실패 시 신규 진입 잠정 중단 | 계좌 DD 15% 초과 시 중단 |
+| **변동성 필터** | 과도한 급등(과열) 종목 진입 제한 | **ATR/종가 15%** (알테오젠 고려 완화) |
 
 ### CLI 사용법
 
@@ -431,4 +460,25 @@ print(f"거래 수: {len(result['trades'])}")
     - `verify_db.py`: 일자별 종목 수 및 데이터 상태 헬스체크
 6.  **(Next Step) 전략 시그널 생성**
     - 적재된 데이터를 바탕으로 익일 매매 신호 생성
+
+
+## ❓ 문제 해결 (Troubleshooting)
+
+### 1. Supabase 데이터 조회 시 1000건 제한 (Row Limit)
+**증상**: 장기간 백테스트 시 데이터가 중간에 잘리거나 거래가 발생하지 않음.
+**원인**: Supabase 클라이언트의 기본 쿼리 제한(limit)이 1000행입니다.
+**해결**: `engine.py` 등 대용량 데이터 로딩 시 반드시 **Pagination(페이지네이션)**을 사용해야 합니다.
+```python
+# 올바른 예시 (Pagination)
+while True:
+    chunk = supabase.table("...").select("*").range(offset, offset + limit - 1).execute()
+    if not chunk.data: break
+    all_data.extend(chunk.data)
+    offset += limit
+```
+
+### 2. 지표 Params 파싱 오류 (JSON vs String)
+**증상**: 올바른 지표임에도 `params` 불일치로 데이터를 찾지 못함.
+**원인**: DB 저장 시 Python `dict`가 Single Quote(`'`)를 포함한 문자열로 저장되는 경우, `json.loads` 표준 함수로 파싱되지 않음.
+**해결**: `ast.literal_eval`을 Fallback으로 사용하여 안전하게 파싱합니다.
 

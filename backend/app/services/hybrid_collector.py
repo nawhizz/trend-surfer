@@ -12,10 +12,13 @@ class HybridCollector:
     FDR(수정주가 OHLCV)과 KRX(거래대금, 시가총액) 데이터를 병합하여 수집하는 수집기
     """
     
-    def backfill_hybrid(self, start_date: str, end_date: str):
+    def backfill_hybrid(self, start_date: str, end_date: str, ticker_list: list[str] = None):
         """
         기간별 하이브리드 백필 실행
         메모리 효율을 위해 월 단위로 나누어 처리합니다.
+        
+        Args:
+            ticker_list: 특정 종목만 백필할 경우 사용 (None이면 전체)
         """
         start_dt = datetime.strptime(start_date, "%Y-%m-%d")
         end_dt = datetime.strptime(end_date, "%Y-%m-%d")
@@ -31,20 +34,26 @@ class HybridCollector:
             e_str = chunk_end.strftime("%Y-%m-%d")
             
             print(f"\n>>> Processing Chunk: {s_str} ~ {e_str}")
-            self._process_chunk(s_str, e_str)
+            self._process_chunk(s_str, e_str, ticker_list)
             
             current = chunk_end + relativedelta(days=1)
 
-    def _process_chunk(self, start_date: str, end_date: str):
+    def _process_chunk(self, start_date: str, end_date: str, ticker_list: list[str] = None):
         # 1. KRX 데이터 선수집 (Amount, MarketCap 확보)
         # map[ticker][date] = {amount, market_cap, open, high, low, close, volume, change_rate}
         print("  1. Pre-fetching KRX data (Amount/Cap)...")
+        # KRX 데이터는 시장 전체 데이터를 가져오는 것이 효율적이므로 전체 조회 유지 (특정 종목만 조회하는 API가 느릴 수 있음)
+        # 단, 메모리 절약을 위해 ticker_list가 있으면 필터링할 수도 있으나, KRX 일별 조회는 전체가 기본임.
         krx_map = self._fetch_krx_map(start_date, end_date)
         print(f"     -> Cached KRX data for {len(krx_map)} tickers.")
         
         # 2. 활성 종목 리스트 가져오기
-        active_tickers = self._get_active_tickers()
-        print(f"  2. Processing {len(active_tickers)} tickers with FDR...")
+        if ticker_list:
+             active_tickers = ticker_list
+             print(f"  2. Processing {len(active_tickers)} tickers (Filtered by user inputs)...")
+        else:
+             active_tickers = self._get_active_tickers()
+             print(f"  2. Processing {len(active_tickers)} tickers with FDR...")
         
         # 3. 종목별 FDR 데이터 수집 및 병합
         total_upserted = 0
