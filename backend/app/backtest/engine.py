@@ -234,15 +234,7 @@ class BacktestEngine:
                 offset += limit
 
             # 지표 데이터 통계 출력
-            print(f"DEBUG: Loaded {len(indicators_data)} indicators for {ticker}")
-            
-            from collections import Counter
-            type_counts = Counter(row['indicator_type'] for row in indicators_data)
-            print(f"DEBUG: Indicator Types: {type_counts}")
-            
-            # HIGH 타입 상세 확인
-            high_params = [row['params'] for row in indicators_data if row['indicator_type'] == 'HIGH'][:5]
-            print(f"DEBUG: Sample HIGH params: {high_params}")
+
 
             # 지표 데이터 정리
             indicators_map = {}
