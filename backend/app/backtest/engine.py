@@ -670,9 +670,10 @@ class BacktestEngine:
         exit_date = exit_info["exit_date"]
         exit_reason = exit_info["exit_reason"]
         
-        # 트레일링 스탑 청산만 재진입 허용
-        if exit_reason != "TRAILING_STOP":
-            return False
+        # 트레일링 스탑 또는 손절 후에도 충분한 쿨타임을 거치면 재진입 허용
+        # 기존: if exit_reason != "TRAILING_STOP": return False (삭제)
+        
+        # 5거래일(또는 설정값) 대기 확인
         
         # 5거래일 대기 확인 (전략별 파라미터 적용)
         cooldown = getattr(self.strategy, "RE_ENTRY_COOLDOWN", 5)
