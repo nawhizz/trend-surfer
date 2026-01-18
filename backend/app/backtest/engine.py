@@ -95,6 +95,7 @@ class BacktestEngine:
         
         # Kill Switch 활성화 상태
         self.kill_switch_active: bool = False
+        self.kill_switch_activated_date: Optional[str] = None
         
         # 불타기용: 현재 오픈 리스크 (R 단위)
         # 포지션별로 추적하여 합산
@@ -526,8 +527,9 @@ class BacktestEngine:
                 fail_count = sum(1 for r in self.recent_trade_results if not r)
                 if fail_count >= 8 and not self.kill_switch_active:
                     self.kill_switch_active = True
+                    self.kill_switch_activated_date = date
                     if verbose:
-                        print(f"[{date}] ⚠️ Kill Switch 활성화 (10회 중 {fail_count}회 실패)")
+                        print(f"[{date}] ⚠️ Kill Switch 활성화 (10회 중 {fail_count}회 실패) - 20일간 매매 중단")
             
             # 리스크 매니저 업데이트
             if trade:
@@ -546,7 +548,22 @@ class BacktestEngine:
         verbose: bool,
     ):
         """신규 진입 시그널 스캔 → 대기 큐에 추가"""
-        # Kill Switch 활성화 시 신규 진입 차단
+        
+        # Kill Switch 활성화 시: 쿨타임(20일) 체크 후 해제
+        if self.kill_switch_active:
+            if self.kill_switch_activated_date:
+                days_passed = self._count_trading_days(self.kill_switch_activated_date, date)
+                if days_passed >= 20:
+                    self.kill_switch_active = False
+                    self.kill_switch_activated_date = None
+                    self.recent_trade_results.clear() # 기록 초기화 (다시 0부터 카운트)
+                    if verbose:
+                        print(f"[{date}] ✅ Kill Switch 해제 (쿨타임 20일 경과) - 매매 재개")
+            else:
+                # 활성화 날짜가 없으면(오류 등) 바로 해제하거나 유지해야 하는데, 안전하게 유지
+                pass
+        
+        # 여전히 활성화 상태면 진입 차단
         if self.kill_switch_active:
             return
         
