@@ -104,8 +104,8 @@ def main():
         "--strategy",
         type=str,
         default="sma",
-        choices=["sma", "ema"],
-        help="전략 선택: sma (SMA 정배열, 기본값), ema (EMA 정배열)",
+        choices=["sma", "ema", "rsi"],
+        help="전략 선택: sma (SMA 정배열), ema (EMA 정배열), rsi (RSI 스윙)",
     )
     parser.add_argument(
         "--quiet",
@@ -133,6 +133,9 @@ def main():
     if args.strategy == "ema":
         from app.backtest.strategies.ema_breakout import EmaBreakoutStrategy
         strategy = EmaBreakoutStrategy()
+    elif args.strategy == "rsi":
+        from app.backtest.strategies.rsi_swing import RsiSwingStrategy
+        strategy = RsiSwingStrategy()
     else:
         strategy = SmaBreakoutStrategy()
 

@@ -30,6 +30,7 @@ class IndicatorCalculator:
     # 추세추종 전략용 지표 기간 설정
     ATR_PERIODS = [20]   # 손절가, 포지션 사이징, 트레일링 스탑용
     HIGH_PERIODS = [20]  # 20일 신고가 돌파 신호용
+    RSI_PERIODS = [14]   # 역추세 스윙 전략용
 
     def __init__(self):
         pass
@@ -132,6 +133,27 @@ class IndicatorCalculator:
             result[i] = np.max(close_prices[i - period : i])
         
         return result
+
+    # ========================================
+    # RSI (Relative Strength Index) 계산
+    # ========================================
+
+    def calculate_rsi(
+        self,
+        close_prices: np.ndarray,
+        period: int,
+    ) -> np.ndarray:
+        """
+        RSI (상대강도지수) 계산
+
+        Args:
+            close_prices: 종가 배열
+            period: 기간 (보통 14일)
+
+        Returns:
+            RSI 값 배열 (0~100)
+        """
+        return talib.RSI(close_prices, timeperiod=period)
 
     # ========================================
     # 데이터 조회 함수
@@ -301,7 +323,7 @@ class IndicatorCalculator:
 
         # 최소 데이터 수 체크
         required_periods = max(
-            self.SMA_PERIODS + self.EMA_PERIODS + self.ATR_PERIODS + self.HIGH_PERIODS
+            self.SMA_PERIODS + self.EMA_PERIODS + self.ATR_PERIODS + self.HIGH_PERIODS + self.RSI_PERIODS
         )
         if len(df) < required_periods:
             print(
@@ -369,6 +391,20 @@ class IndicatorCalculator:
                     dates=dates,
                     values=high_values,
                     indicator_type="HIGH",
+                    params={"period": period},
+                    start_date=start_date,
+                )
+            )
+
+        # 7. RSI 계산
+        for period in self.RSI_PERIODS:
+            rsi_values = self.calculate_rsi(close_prices, period)
+            indicators.extend(
+                self._build_indicator_records(
+                    ticker=ticker,
+                    dates=dates,
+                    values=rsi_values,
+                    indicator_type="RSI",
                     params={"period": period},
                     start_date=start_date,
                 )

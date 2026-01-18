@@ -74,6 +74,7 @@ class EmaBreakoutStrategy(BaseStrategy):
         ticker: str,
         data: SignalData,
         entry_price: float,
+        entry_date: str,
         highest_close: float,
         initial_stop: float,
     ) -> Optional[str]:

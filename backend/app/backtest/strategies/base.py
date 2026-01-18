@@ -46,11 +46,13 @@ class SignalData:
     ma20: Optional[float] = None
     ma60: Optional[float] = None
     ma120: Optional[float] = None
+    ma200: Optional[float] = None  # 추가됨
     ema20: Optional[float] = None
     ema50: Optional[float] = None
     ema120: Optional[float] = None
     ema200: Optional[float] = None
     atr20: Optional[float] = None
+    rsi14: Optional[float] = None  # 추가됨
     high20: Optional[float] = None
 
 
@@ -92,6 +94,7 @@ class BaseStrategy(ABC):
         ticker: str,
         data: SignalData,
         entry_price: float,
+        entry_date: str,
         highest_close: float,
         initial_stop: float,
     ) -> Optional[str]:
@@ -102,11 +105,12 @@ class BaseStrategy(ABC):
             ticker: 종목 코드
             data: 시장 데이터
             entry_price: 진입가
+            entry_date: 진입일 (YYYY-MM-DD)
             highest_close: 보유 중 최고 종가
             initial_stop: 초기 손절가
             
         Returns:
-            청산 사유 문자열 (예: "STOP_LOSS", "TRAILING", "MA_EXIT")
+            청산 사유 문자열 (예: "STOP_LOSS", "TRAILING", "MA_EXIT", "TIME_EXIT")
             None: 청산 시그널 없음 (포지션 유지)
         """
         pass

@@ -13,6 +13,7 @@
     cd backend
     uv run ../scripts/calc_indicators.py --mode calc
     uv run ../scripts/calc_indicators.py --mode single --ticker 005930
+    uv run ../scripts/calc_indicators.py --mode all --start 2020-01-01
     uv run ../scripts/calc_indicators.py --mode multi
     uv run ../scripts/calc_indicators.py --mode strategy --ticker 005930
 """
@@ -167,19 +168,39 @@ def calc_strategy_indicators(ticker: str = "005930"):
         print("저장 취소됨")
 
 
+def calc_all_tickers(start_date: str = "2025-01-01"):
+    """전체 종목 지표 계산 (백필용)"""
+    print("=" * 50)
+    print(f"전체 종목 지표 계산 (Start: {start_date})")
+    print("=" * 50)
+
+    indicator_calculator.calculate_and_save_for_all_tickers(
+        start_date=start_date,
+        end_date=None,
+        ticker_list=None,  # 전체 종목 대상
+    )
+
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="기술적 지표 계산")
     parser.add_argument(
         "--mode",
-        choices=["calc", "single", "multi", "strategy"],
+        choices=["calc", "single", "multi", "strategy", "all"],
         default="calc",
-        help="모드: calc(계산 테스트), single(단일종목), multi(여러종목), strategy(전략용 지표)",
+        help="모드: calc(테스트), single(단일), multi(예시), strategy(전략확인), all(전체백필)",
     )
     parser.add_argument(
         "--ticker",
         type=str,
         default="005930",
         help="종목 코드 (기본값: 005930 삼성전자)",
+    )
+    parser.add_argument(
+        "--start",
+        type=str,
+        default="2025-01-01",
+        help="계산 시작일 (YYYY-MM-DD)",
     )
 
     args = parser.parse_args()
@@ -190,5 +211,9 @@ if __name__ == "__main__":
         calc_single_ticker(args.ticker)
     elif args.mode == "multi":
         calc_multi_tickers()
+    elif args.mode == "multi":
+        calc_multi_tickers()
     elif args.mode == "strategy":
         calc_strategy_indicators(args.ticker)
+    elif args.mode == "all":
+        calc_all_tickers(start_date=args.start)

@@ -151,7 +151,8 @@ uv run ../scripts/run_collector.py
 - **최소 데이터 요건**: 지표 계산을 위해 최소 `period` 이상의 데이터가 필요하며, 안정적인 값을 위해 일반적으로 더 긴 기간의 데이터를 로드하여 계산합니다.
 - **NaN 처리**: 계산 초기의 NaN 값(Not a Number)은 DB에 저장하지 않습니다. 유효한 값(Valid Value)이 생성되는 시점부터 저장됩니다.
 
-### 사용법
+### 지표 재계산 (Manual Calculation)
+데이터 정합성 문제나 로직 변경 시, DB에 있는 일봉 데이터를 기반으로 기술적 지표를 재계산합니다.
 
 ```bash
 cd backend
@@ -325,6 +326,7 @@ uv run ../scripts/verify_db.py
 |---------|----------|------|
 | `sma` | `SmaBreakoutStrategy` | SMA 정배열 (20MA > 60MA > 120MA) + 20일 신고가 돌파, 60MA 이탈 청산 |
 | `ema` | `EmaBreakoutStrategy` | EMA 정배열 (20EMA > 50EMA > 120EMA) + 20일 신고가 돌파, 50EMA 이탈 청산 |
+| `rsi` | `RsiSwingStrategy` | **RSI 스윙 (추천)**: 중기 상승(>60MA) 눌림목(RSI<45) 매수, 과매수(RSI>70) 또는 10일 후 청산 |
 
 ### CLI 사용법
 
@@ -336,6 +338,9 @@ uv run ../scripts/run_backtest.py --start 2025-01-01 --strategy sma
 
 # EMA 전략
 uv run ../scripts/run_backtest.py --start 2025-01-01 --strategy ema
+
+# RSI 스윙 전략 (추천)
+uv run ../scripts/run_backtest.py --start 2025-01-01 --strategy rsi
 
 # 특정 종목만 테스트
 uv run ../scripts/run_backtest.py --start 2025-01-01 --ticker 005930,000660
@@ -350,7 +355,7 @@ uv run ../scripts/run_backtest.py --start 2025-01-01 --output ./results
 |------|------|--------|
 | `--start` | 시작일 (YYYY-MM-DD) | 필수 |
 | `--end` | 종료일 (YYYY-MM-DD) | 오늘 |
-| `--strategy` | 전략 선택 (sma/ema) | sma |
+| `--strategy` | 전략 선택 (sma/ema/rsi) | sma |
 | `--ticker` | 특정 종목 (쉼표 구분) | 전체 활성 종목 |
 | `--capital` | 초기 자본금 | 1억원 |
 | `--risk` | 거래당 리스크 비율 | 0.01 (1%) |

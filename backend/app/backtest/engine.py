@@ -225,11 +225,13 @@ class BacktestEngine:
                     ma20=indicators.get("MA_20"),
                     ma60=indicators.get("MA_60"),
                     ma120=indicators.get("MA_120"),
+                    ma200=indicators.get("MA_200"),
                     ema20=indicators.get("EMA_20"),
                     ema50=indicators.get("EMA_50"),
                     ema120=indicators.get("EMA_120"),
                     ema200=indicators.get("EMA_200"),
                     atr20=indicators.get("ATR_20"),
+                    rsi14=indicators.get("RSI_14"),
                     high20=indicators.get("HIGH_20"),
                 )
                 ticker_data[date] = signal_data
@@ -410,6 +412,7 @@ class BacktestEngine:
                 ticker=ticker,
                 data=data,
                 entry_price=position.entry_price,
+                entry_date=position.entry_date,
                 highest_close=position.highest_close,
                 initial_stop=position.initial_stop,
             )
