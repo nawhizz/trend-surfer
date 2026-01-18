@@ -99,7 +99,7 @@ uv run ../scripts/update_adjusted_prices.py --date 20240103
 
 | 스크립트 | 설명 |
 |----------|------|
-| `run_backtest.py` | 전략 백테스트 실행 (SMA/EMA) |
+| `run_backtest.py` | 전략 백테스트 실행 (SMA/EMA/RSI/추세추종) |
 | `backfill_candles.py` | 과거 캔들 데이터 대량 수집 |
 | `update_adjusted_prices.py` | 수정주가 이벤트 감지 및 자동 보정 |
 | `collect_today.py` | 당일(장 마감 후) 데이터 수집 |
@@ -145,7 +145,9 @@ uv run ../scripts/run_collector.py
 | **SMA (단순이동평균)** | 5, 10, 20, 60, 120, 240일 | 추세 분석, 정배열 판단 |
 | **EMA (지수이동평균)** | 5, 10, 20, 40, 50, 120, 200, 240일 | 추세 분석 |
 | **ATR (평균 변동성)** | 20일 | 손절가, 포지션 사이징, 트레일링 스탑 |
-| **HIGH (기간 최고 종가)** | 20일 | 신고가 돌파 신호 (당일 제외, Look-ahead bias 방지) |
+| **HIGH (기간 최고 종가)** | 10, 20일 | 신고가 돌파/불타기 신호 (당일 제외) |
+| **EMA_SLOPE (EMA 기울기)** | 50일 | 추세 구조 필터 (ATR 정규화) |
+| **RSI (상대강도지수)** | 14일 | 과매수/과매도 판단 |
 
 ### 계산 규칙 (Calculation Rules)
 - **최소 데이터 요건**: 지표 계산을 위해 최소 `period` 이상의 데이터가 필요하며, 안정적인 값을 위해 일반적으로 더 긴 기간의 데이터를 로드하여 계산합니다.
@@ -190,25 +192,31 @@ indicator_calculator.calculate_and_save_for_all_tickers(
 
 ### 추세추종 전략용 지표
 
-**정배열 + 20일 신고가 돌파** 전략에 필요한 지표들이 포함되어 있습니다.
+**20일 신고가 돌파 + 50EMA 필터** 전략에 필요한 지표들이 포함되어 있습니다.
 
 | 전략 규칙 | 필요 지표 |
 |-----------|----------|
-| 정배열 판단 (`20MA > 60MA > 120MA`) | MA(20), MA(60), MA(120) |
 | 20일 신고가 돌파 (`종가 > HIGH(20)`) | HIGH(20) |
-| 손절가 (`진입가 - ATR × 2.5`) | ATR(20) |
-| 트레일링 스탑 (`최고종가 - ATR × 3.0`) | ATR(20) |
+| 50EMA 구조 필터 (`기울기 >= -0.2`) | EMA_SLOPE(50) |
+| ATR 과열 (`ATR/종가 <= 8%`) | ATR(20) |
+| 손절가 (`진입가 - ATR × 2`) | ATR(20) |
+| 트레일링 스탑 (`최고종가 - ATR × 2.5`) | ATR(20) |
+| 불타기 조건 (`종가 > HIGH(10)`) | HIGH(10) |
 
 ### 시장 필터 (Market Regime Filter)
 
 시장 전체가 역풍일 때 **신규 진입을 차단**하여 연속 손절과 계좌 변동성을 줄입니다.
 
+#### 기본 필터 (MA60)
 **규칙**: `KOSPI 종가 > KOSPI 60MA AND KOSDAQ 종가 > KOSDAQ 60MA`
+
+#### 구조 필터 (EMA50 기울기) - 추세추종 전략용
+**규칙**: `KOSPI EMA50 기울기 >= -0.2 AND KOSDAQ EMA50 기울기 >= -0.2`
 
 ```bash
 cd backend
 
-# 지수 데이터 백필 (초기 1회)
+# 지수 데이터 백필 (캔들 + 지표 포함)
 uv run ../scripts/backfill_index.py --start 2024-01-01
 
 # 시장 상태 확인 (단일 날짜)
@@ -216,9 +224,6 @@ uv run ../scripts/check_market_filter.py --mode status --date 2026-01-16
 
 # 시장 상태 히스토리 (기간)
 uv run ../scripts/check_market_filter.py --mode range --start 2026-01-01 --end 2026-01-16
-
-# 지수 MA(60) 지표 DB 저장
-uv run ../scripts/check_market_filter.py --mode save --start 2024-01-01
 ```
 
 **코드에서 사용**:
@@ -226,16 +231,18 @@ uv run ../scripts/check_market_filter.py --mode save --start 2024-01-01
 ```python
 from app.services.market_filter import market_filter
 
-# 특정 날짜 시장 필터 확인
+# 기본 시장 필터 (MA60)
 if market_filter.is_bullish("2026-01-16"):
     print("신규 진입 허용")
-else:
-    print("신규 진입 금지")
 
-# 상세 정보 조회
-status = market_filter.get_market_status("2026-01-16")
+# 구조 필터 (EMA50 기울기) - 추세추종 전략용
+if market_filter.is_index_structure_ok("2026-01-16"):
+    print("지수 구조 정상")
+
+# 종합 상태 조회
+status = market_filter.get_full_market_status("2026-01-16")
 print(status)
-# {'kospi_close': 4840.74, 'kospi_ma60': 4145.98, 'is_bullish': True, ...}
+# {'is_bullish': True, 'is_structure_ok': True, 'kospi_ema50_slope': 0.05, ...}
 ```
 
 ### 과거 데이터 지표 백필 (Backfill Indicators)
@@ -326,7 +333,8 @@ uv run ../scripts/verify_db.py
 |---------|----------|------|
 | `sma` | `SmaBreakoutStrategy` | SMA 정배열 (20MA > 60MA > 120MA) + 20일 신고가 돌파, 60MA 이탈 청산 |
 | `ema` | `EmaBreakoutStrategy` | EMA 정배열 (20EMA > 50EMA > 120EMA) + 20일 신고가 돌파, 50EMA 이탈 청산 |
-| `rsi` | `RsiSwingStrategy` | **RSI 스윙 (추천)**: 중기 상승(>60MA) 눌림목(RSI<45) 매수, 과매수(RSI>70) 또는 10일 후 청산 |
+| `rsi` | `RsiSwingStrategy` | RSI 스윙: 중기 상승(>60MA) 눌림목(RSI<45) 매수, 과매수(RSI>70) 또는 10일 후 청산 |
+| `trend` | `TrendFollowingStrategy` | **추세추종 (추천)**: 20일 신고가 + 50EMA 기울기 필터 + ATR 트레일링 |
 
 ### CLI 사용법
 
@@ -339,8 +347,11 @@ uv run ../scripts/run_backtest.py --start 2025-01-01 --strategy sma
 # EMA 전략
 uv run ../scripts/run_backtest.py --start 2025-01-01 --strategy ema
 
-# RSI 스윙 전략 (추천)
+# RSI 스윙 전략
 uv run ../scripts/run_backtest.py --start 2025-01-01 --strategy rsi
+
+# 추세추종 전략 (추천)
+uv run ../scripts/run_backtest.py --start 2025-01-01 --strategy trend
 
 # 특정 종목만 테스트
 uv run ../scripts/run_backtest.py --start 2025-01-01 --ticker 005930,000660
@@ -355,7 +366,7 @@ uv run ../scripts/run_backtest.py --start 2025-01-01 --output ./results
 |------|------|--------|
 | `--start` | 시작일 (YYYY-MM-DD) | 필수 |
 | `--end` | 종료일 (YYYY-MM-DD) | 오늘 |
-| `--strategy` | 전략 선택 (sma/ema/rsi) | sma |
+| `--strategy` | 전략 선택 (sma/ema/rsi/trend) | sma |
 | `--ticker` | 특정 종목 (쉼표 구분) | 전체 활성 종목 |
 | `--capital` | 초기 자본금 | 1억원 |
 | `--risk` | 거래당 리스크 비율 | 0.01 (1%) |
@@ -372,9 +383,11 @@ backend/app/backtest/
 ├── result.py              # 결과 분석 및 통계
 ├── trade_repository.py    # DB 저장소
 └── strategies/
-    ├── base.py            # 전략 인터페이스
+    ├── base.py            # 전략 인터페이스 + SignalData
     ├── sma_breakout.py    # SMA 정배열 전략
-    └── ema_breakout.py    # EMA 정배열 전략
+    ├── ema_breakout.py    # EMA 정배열 전략
+    ├── rsi_swing.py       # RSI 스윙 전략
+    └── trend_following.py # 추세추종 전략 (20일 신고가 + 50EMA)
 ```
 
 ### 코드에서 사용

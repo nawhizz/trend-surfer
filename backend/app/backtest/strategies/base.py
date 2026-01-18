@@ -35,7 +35,9 @@ class SignalData:
         ema50: 50일 지수이동평균
         ema200: 200일 지수이동평균
         atr20: 20일 ATR
+        high10: 10일 최고 종가 (불타기 조건용)
         high20: 20일 최고 종가 (당일 제외)
+        ema50_slope: 50EMA ATR 정규화 기울기 (구조 필터)
     """
     date: str
     open: float
@@ -46,14 +48,16 @@ class SignalData:
     ma20: Optional[float] = None
     ma60: Optional[float] = None
     ma120: Optional[float] = None
-    ma200: Optional[float] = None  # 추가됨
+    ma200: Optional[float] = None
     ema20: Optional[float] = None
     ema50: Optional[float] = None
     ema120: Optional[float] = None
     ema200: Optional[float] = None
     atr20: Optional[float] = None
-    rsi14: Optional[float] = None  # 추가됨
-    high20: Optional[float] = None
+    rsi14: Optional[float] = None
+    high10: Optional[float] = None       # 10일 최고가 (불타기용)
+    high20: Optional[float] = None       # 20일 최고가 (신고가 돌파용)
+    ema50_slope: Optional[float] = None  # 50EMA ATR 정규화 기울기
 
 
 class BaseStrategy(ABC):

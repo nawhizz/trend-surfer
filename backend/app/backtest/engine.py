@@ -232,7 +232,9 @@ class BacktestEngine:
                     ema200=indicators.get("EMA_200"),
                     atr20=indicators.get("ATR_20"),
                     rsi14=indicators.get("RSI_14"),
+                    high10=indicators.get("HIGH_10"),
                     high20=indicators.get("HIGH_20"),
+                    ema50_slope=indicators.get("EMA_SLOPE_50"),
                 )
                 ticker_data[date] = signal_data
 

@@ -213,6 +213,90 @@ class MarketFilter:
         status = self.get_market_status(date)
         return status.get("is_bullish", False) is True
 
+    def get_index_ema_slope(
+        self,
+        ticker: str,
+        target_date: str,
+    ) -> Optional[float]:
+        """
+        특정 날짜의 지수 EMA50 기울기 조회 (DB에서)
+        
+        Args:
+            ticker: 지수 코드 (KS11, KQ11)
+            target_date: 조회 기준일 (YYYY-MM-DD)
+            
+        Returns:
+            EMA_SLOPE_50 값, 없으면 None
+        """
+        # EMA_SLOPE 지표 조회 (period 50)
+        # indicator_type으로만 조회 (EMA_SLOPE_50은 유일하므로 params 필터 불필요)
+        response = (
+            supabase.table("daily_technical_indicators")
+            .select("value")
+            .eq("ticker", ticker)
+            .eq("date", target_date)
+            .eq("indicator_type", "EMA_SLOPE")
+            .execute()
+        )
+        
+        if response.data and len(response.data) > 0:
+            return float(response.data[0]["value"])
+        
+        return None
+
+    def is_index_structure_ok(
+        self,
+        date: str,
+        slope_threshold: float = -0.2,
+    ) -> bool:
+        """
+        지수 구조 붕괴 여부 확인 (EMA50 기울기 기반)
+        
+        추세추종 전략의 시장 필터로 사용:
+        - KOSPI와 KOSDAQ 모두 EMA50 기울기가 threshold 이상이어야 진입 허용
+        
+        Args:
+            date: 기준일 (YYYY-MM-DD)
+            slope_threshold: 기울기 임계값 (기본 -0.2)
+            
+        Returns:
+            True: 지수 구조 정상 (진입 허용)
+            False: 지수 구조 붕괴 (진입 금지)
+        """
+        # KOSPI EMA50 기울기 확인
+        kospi_slope = self.get_index_ema_slope("KS11", date)
+        if kospi_slope is None or kospi_slope < slope_threshold:
+            return False
+        
+        # KOSDAQ EMA50 기울기 확인
+        kosdaq_slope = self.get_index_ema_slope("KQ11", date)
+        if kosdaq_slope is None or kosdaq_slope < slope_threshold:
+            return False
+        
+        return True
+
+    def get_full_market_status(self, date: str) -> dict:
+        """
+        특정 날짜의 종합 시장 상태 조회 (MA60 + EMA50 기울기)
+        
+        Args:
+            date: 기준일 (YYYY-MM-DD)
+            
+        Returns:
+            종합 시장 상태 딕셔너리
+        """
+        # 기존 MA 기반 상태
+        status = self.get_market_status(date)
+        
+        # EMA50 기울기 추가
+        status["kospi_ema50_slope"] = self.get_index_ema_slope("KS11", date)
+        status["kosdaq_ema50_slope"] = self.get_index_ema_slope("KQ11", date)
+        
+        # 구조 상태 추가
+        status["is_structure_ok"] = self.is_index_structure_ok(date)
+        
+        return status
+
     def save_market_indicators_to_db(
         self,
         start_date: str,

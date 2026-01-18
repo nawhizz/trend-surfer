@@ -5,8 +5,9 @@ ta-lib 패키지를 사용하여 다양한 기술적 지표를 계산하고 DB�
 현재 지원 지표:
 - SMA (단순이동평균): 5, 10, 20, 60, 120, 240일
 - EMA (지수이동평균): 5, 10, 20, 40, 50, 120, 200, 240일
+- EMA_SLOPE (EMA 기울기): 50일 (ATR 정규화)
 - ATR (평균 변동성): 20일
-- HIGH (기간 최고 종가): 20일 (당일 제외, 과거 N일 기준)
+- HIGH (기간 최고 종가): 10, 20일 (당일 제외, 과거 N일 기준)
 """
 
 import json
@@ -28,9 +29,10 @@ class IndicatorCalculator:
     EMA_PERIODS = [5, 10, 20, 40, 50, 120, 200, 240]
     
     # 추세추종 전략용 지표 기간 설정
-    ATR_PERIODS = [20]   # 손절가, 포지션 사이징, 트레일링 스탑용
-    HIGH_PERIODS = [20]  # 20일 신고가 돌파 신호용
-    RSI_PERIODS = [14]   # 역추세 스윙 전략용
+    ATR_PERIODS = [20]        # 손절가, 포지션 사이징, 트레일링 스탑용
+    HIGH_PERIODS = [10, 20]   # 10일(불타기), 20일(신고가 돌파) 신호용
+    RSI_PERIODS = [14]        # 역추세 스윙 전략용
+    EMA_SLOPE_PERIODS = [50]  # EMA 기울기 계산용 (구조 필터)
 
     def __init__(self):
         pass
@@ -154,6 +156,56 @@ class IndicatorCalculator:
             RSI 값 배열 (0~100)
         """
         return talib.RSI(close_prices, timeperiod=period)
+
+    # ========================================
+    # EMA 기울기 계산 (ATR 정규화)
+    # ========================================
+
+    def calculate_ema_slope(
+        self,
+        close_prices: np.ndarray,
+        high_prices: np.ndarray,
+        low_prices: np.ndarray,
+        ema_period: int,
+        atr_period: int = 20,
+    ) -> np.ndarray:
+        """
+        EMA 기울기 계산 (ATR 정규화)
+        
+        구조 필터로 사용: EMA의 일일 변화량을 ATR로 나누어
+        변동성에 따른 상대적 움직임을 측정합니다.
+        
+        계산식: slope = (EMA[today] - EMA[yesterday]) / ATR
+        
+        해석:
+        - slope >= -0.2: 상승 또는 보합 (진입 허용)
+        - slope < -0.2: 하락 추세 (진입 금지)
+        - slope < -0.3: 강한 하락 (청산 조건)
+
+        Args:
+            close_prices: 종가 배열
+            high_prices: 고가 배열
+            low_prices: 저가 배열
+            ema_period: EMA 기간 (예: 50)
+            atr_period: ATR 기간 (기본 20)
+
+        Returns:
+            ATR 정규화된 EMA 기울기 배열
+        """
+        # EMA 계산
+        ema = talib.EMA(close_prices, timeperiod=ema_period)
+        
+        # ATR 계산
+        atr = talib.ATR(high_prices, low_prices, close_prices, timeperiod=atr_period)
+        
+        # 기울기 계산: (EMA[today] - EMA[yesterday]) / ATR
+        slope = np.full(len(close_prices), np.nan)
+        
+        for i in range(1, len(close_prices)):
+            if not np.isnan(ema[i]) and not np.isnan(ema[i-1]) and not np.isnan(atr[i]) and atr[i] > 0:
+                slope[i] = (ema[i] - ema[i-1]) / atr[i]
+        
+        return slope
 
     # ========================================
     # 데이터 조회 함수
@@ -405,6 +457,22 @@ class IndicatorCalculator:
                     dates=dates,
                     values=rsi_values,
                     indicator_type="RSI",
+                    params={"period": period},
+                    start_date=start_date,
+                )
+            )
+
+        # 8. EMA 기울기 계산 (추세추종 전략용 - 구조 필터)
+        for period in self.EMA_SLOPE_PERIODS:
+            slope_values = self.calculate_ema_slope(
+                close_prices, high_prices, low_prices, ema_period=period
+            )
+            indicators.extend(
+                self._build_indicator_records(
+                    ticker=ticker,
+                    dates=dates,
+                    values=slope_values,
+                    indicator_type="EMA_SLOPE",
                     params={"period": period},
                     start_date=start_date,
                 )
