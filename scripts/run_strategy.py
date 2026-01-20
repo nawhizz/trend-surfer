@@ -57,8 +57,9 @@ def main():
         # Amount filter is more reliable than volume
         amount = c.get('amount') or (c['close'] * c['volume'])
         if amount >= args.min_amount and c['close'] >= args.min_price:
-            target_tickers.append(c['ticker'])
-            filtered_candle_map[c['ticker']] = c
+            if c['ticker'] not in filtered_candle_map:
+                target_tickers.append(c['ticker'])
+                filtered_candle_map[c['ticker']] = c
             
     print(f"Filtered down to {len(target_tickers)} tickers (Amount >= {args.min_amount:,}, Price >= {args.min_price:,}).")
     
@@ -113,7 +114,7 @@ def main():
                    .select("ticker, indicator_type, params, value")
                    .eq("date", target_date)
                    .in_("ticker", batch)
-                   .in_("indicator_type", ["MA", "HIGH"])
+                   .in_("indicator_type", ["MA", "HIGH", "ATR"])
                    .execute())
             
             if resp.data:
@@ -142,6 +143,8 @@ def main():
             ind_map[t]['MA_20'] = val
         elif itype == 'HIGH' and params.get('period') == 20:
             ind_map[t]['HIGH_20'] = val
+        elif itype == 'ATR' and params.get('period') == 20:
+            ind_map[t]['ATR_20'] = val
 
     # 4. Apply Logic
     signals = []
@@ -159,6 +162,7 @@ def main():
         i_data = ind_map.get(ticker, {})
         ma_20 = i_data.get('MA_20')
         high_20 = i_data.get('HIGH_20')
+        atr_20 = i_data.get('ATR_20')
         
         if ma_20 is None or high_20 is None:
             continue
@@ -178,7 +182,8 @@ def main():
                 'strength': round(strength, 2),
                 'amount_b': round(amount / 100000000, 1), # In Billions
                 'ma_20': ma_20,
-                'high_20': high_20
+                'high_20': high_20,
+                'atr_20': atr_20 if atr_20 is not None else 0 # Handle potential missing ATR
             })
 
     # 5. Sort & Output
@@ -187,15 +192,15 @@ def main():
     
     top_n = 30
     print(f"\n[Signal Result] Found {len(signals)} stocks. Showing Top {top_n} by Intraday Strength.")
-    print("-" * 100)
-    print(f"{'Ticker':<8} | {'Close':<10} | {'Str(%)':<8} | {'Amt(B)':<8} | {'MA(20)':<10} | {'HIGH(20)':<10} | {'Name'}")
-    print("-" * 100)
+    print("-" * 115)
+    print(f"{'Ticker':<8} | {'Close':<10} | {'Str(%)':<8} | {'Amt(B)':<8} | {'MA(20)':<10} | {'HIGH(20)':<10} | {'ATR(20)':<10} | {'Name'}")
+    print("-" * 115)
     
     for s in signals[:top_n]:
         # Name is last to avoid alignment issues
-        print(f"{s['ticker']:<8} | {s['close']:<10} | {s['strength']:<8} | {s['amount_b']:<8} | {s['ma_20']:<10} | {s['high_20']:<10} | {s['name']}")
+        print(f"{s['ticker']:<8} | {s['close']:<10} | {s['strength']:<8} | {s['amount_b']:<8} | {s['ma_20']:<10} | {s['high_20']:<10} | {s['atr_20']:<10} | {s['name']}")
         
-    print("-" * 100)
+    print("-" * 115)
 
 if __name__ == "__main__":
     main()
