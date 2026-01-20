@@ -83,6 +83,16 @@ class StockCollector:
                     supabase.table("stocks").upsert(chunk).execute()
                     print(f"Upserted stocks {i} to {i+len(chunk)}")
                 print("Stock list updated successfully.")
+                
+                # Deactivate delisted stocks (not in FDR anymore)
+                fdr_tickers = [stock['ticker'] for stock in all_stocks]
+                try:
+                    # Update is_active=False for stocks not in current FDR list
+                    result = supabase.table("stocks").update({"is_active": False}).not_.in_("ticker", fdr_tickers).execute()
+                    if result.data:
+                        print(f"Deactivated {len(result.data)} delisted stocks.")
+                except Exception as e:
+                    print(f"Warning: Could not deactivate delisted stocks: {e}")
             else:
                 print("No stocks found to update.")
 

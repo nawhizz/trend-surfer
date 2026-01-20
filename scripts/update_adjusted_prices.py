@@ -8,6 +8,7 @@ import pandas as pd
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'backend')))
 
 from app.services.krx_collector import krx_collector
+from app.services.indicator_calculator import indicator_calculator
 from app.db.client import supabase
 
 def get_db_yesterday_closes(tickers):
@@ -22,7 +23,7 @@ def get_db_yesterday_closes(tickers):
     # No, we need Yesterday's specific close to compare with API's Implicit Yesterday.
     pass
 
-def detect_and_update(target_date_str=None, threshold=0.05, backfill_years=1):
+def detect_and_update(target_date_str=None, threshold=0.05, backfill_start_date="2020-01-01"):
     if not target_date_str:
         target_date_str = datetime.now().strftime("%Y%m%d")
     
@@ -149,14 +150,19 @@ def detect_and_update(target_date_str=None, threshold=0.05, backfill_years=1):
         print(f"Found {len(adjustment_candidates)} tickers requiring update.")
         
         # Backfill Range
-        # Default: 1 year ? Or Full History?
-        # User goal is analysis. Full history is safer.
-        # Let's do 2000-01-01 to Yesterday.
-        start_bf = (datetime.now() - timedelta(days=365*backfill_years)).strftime("%Y-%m-%d")
+        start_bf = backfill_start_date
         end_bf = yesterday_str
         
         print(f"Triggering Backfill for {start_bf} ~ {end_bf}")
         krx_collector.backfill_period(start_bf, end_bf, target_tickers=adjustment_candidates)
+        
+        # Recalculate Indicators
+        print(f"Triggering Indicator Recalculation for {len(adjustment_candidates)} tickers...")
+        indicator_calculator.calculate_and_save_for_all_tickers(
+            start_date=start_bf,
+            end_date=end_bf,
+            ticker_list=adjustment_candidates
+        )
         
     else:
         print("No adjustments detected.")
@@ -165,8 +171,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--date", help="Target Date YYYYMMDD (default: today)")
     parser.add_argument("--threshold", type=float, default=0.20, help="Mismatch threshold (0.2 = 20%)") 
+    parser.add_argument("--start_date", default="2020-01-01", help="Backfill start date YYYY-MM-DD (default: 2020-01-01)")
     # 20% threshold is safe to avoid noise, splits are usually 50%+. 
     # Dividend drop is small. We want to catch Split/Merger which are huge.
     args = parser.parse_args()
     
-    detect_and_update(args.date, args.threshold)
+    detect_and_update(args.date, args.threshold, args.start_date)
