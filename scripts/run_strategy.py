@@ -20,6 +20,7 @@ def main():
     parser.add_argument("--min_volume", type=int, default=100000, help="Minimum volume filter (default: 100,000)")
     parser.add_argument("--min_amount", type=int, default=5000000000, help="Minimum transaction amount (default: 5,000,000,000 KRW)")
     parser.add_argument("--min_price", type=int, default=1000, help="Minimum price filter (default: 1,000)")
+    parser.add_argument("--limit", type=int, default=0, help="Number of results to show (0 for all, default: All)")
     
     args = parser.parse_args()
     target_date = args.date if args.date else datetime.now().strftime("%Y-%m-%d")
@@ -170,8 +171,9 @@ def main():
         # Strategy Logic
         is_trend_up = close > ma_20
         is_breakout = close > high_20
+        is_positive_candle = close > open_p
         
-        if is_trend_up and is_breakout:
+        if is_trend_up and is_breakout and is_positive_candle:
             # Strength: (Close - Open) / Open (Approx intraday change)
             strength = ((close - open_p) / open_p) * 100 if open_p > 0 else 0
             
@@ -190,13 +192,16 @@ def main():
     # Sort by Strength (Intraday Rise) Descending
     signals.sort(key=lambda x: x['strength'], reverse=True)
     
-    top_n = 30
-    print(f"\n[Signal Result] Found {len(signals)} stocks. Showing Top {top_n} by Intraday Strength.")
+    limit = args.limit
+    if limit == 0:
+        limit = len(signals)
+        
+    print(f"\n[Signal Result] Found {len(signals)} stocks. Showing Top {limit if limit < len(signals) else 'All'} by Intraday Strength.")
     print("-" * 115)
     print(f"{'Ticker':<8} | {'Close':<10} | {'Str(%)':<8} | {'Amt(B)':<8} | {'MA(20)':<10} | {'HIGH(20)':<10} | {'ATR(20)':<10} | {'Name'}")
     print("-" * 115)
     
-    for s in signals[:top_n]:
+    for s in signals[:limit]:
         # Name is last to avoid alignment issues
         print(f"{s['ticker']:<8} | {s['close']:<10} | {s['strength']:<8} | {s['amount_b']:<8} | {s['ma_20']:<10} | {s['high_20']:<10} | {s['atr_20']:<10} | {s['name']}")
         
