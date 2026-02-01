@@ -79,9 +79,14 @@ def main():
         print("Routine aborted at Step 4.")
         sys.exit(1)
         
-    # 5. Run Strategy & Generate Signals
+    # 5. Update Warning Stocks (관리종목, 투자경고 등)
+    if not run_script("update_warning_stocks.py"):
+        print("Warning: Step 5 (Warning Stocks) failed, continuing...")
+        # 경고 종목 업데이트 실패해도 계속 진행
+
+    # 6. Run Strategy & Generate Signals
     if not run_script("run_strategy.py", ["--date", target_date]):
-        print("Routine aborted at Step 5.")
+        print("Routine aborted at Step 6.")
         sys.exit(1)
         
     print(f"\n{'='*60}")

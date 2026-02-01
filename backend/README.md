@@ -30,6 +30,11 @@ uv sync
 SUPABASE_URL="YOUR_SUPABASE_URL"
 SUPABASE_KEY="YOUR_SUPABASE_KEY"
 KRX_API_KEY="YOUR_KRX_API_KEY"
+
+# 키움증권 REST API (경고종목 조회용)
+KIWOOM_APP_KEY="YOUR_KIWOOM_APP_KEY"
+KIWOOM_APP_SECRET="YOUR_KIWOOM_APP_SECRET"
+KIWOOM_IS_PAPER_TRADING=True
 ```
 
 ### 3. 서버 실행 (API)
@@ -65,7 +70,8 @@ uv run ../scripts/daily_routine.py
 | **2. 수정주가** | `update_adjusted_prices.py` | 액면분할 등 이벤트 감지 및 과거 데이터 자동 백필 |
 | **3. 시세 수집** | `run_collector.py --mode daily` | 당일 OHLCV 및 거래대금(KRX) 수집 |
 | **4. 지표 계산** | `run_daily_indicators.py` | 당일 캔들 기준 기술적 지표(MA, EMA_STAGE, ATR 등) 계산 |
-| **5. 전략 실행** | `run_strategy.py` | 포착된 종목(시그널) 스캔 및 리스트 출력 |
+| **5. 경고종목** | `update_warning_stocks.py` | 관리종목, 투자경고, 거래정지 등 경고 상태 업데이트 (키움 API) |
+| **6. 전략 실행** | `run_strategy.py` | 포착된 종목(시그널) 스캔 및 리스트 출력 |
 
 ---
 

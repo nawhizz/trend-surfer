@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS stocks (
     industry VARCHAR(255),
     is_preferred BOOLEAN DEFAULT FALSE,
     is_active BOOLEAN DEFAULT TRUE,
+    warning_type VARCHAR(20), -- 시장경보: NULL(정상), ADMIN(관리), WARNING(투자경고), CAUTION(환기), HALT(거래정지), DELISTING(정리매매)
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
@@ -22,6 +23,7 @@ COMMENT ON COLUMN stocks.sector IS '업종/섹터';
 COMMENT ON COLUMN stocks.industry IS '주요 제품/산업 (상세)';
 COMMENT ON COLUMN stocks.is_preferred IS '우선주 여부 (True: 우선주)';
 COMMENT ON COLUMN stocks.is_active IS '거래 가능 여부 (False: 상장폐지 등)';
+COMMENT ON COLUMN stocks.warning_type IS '시장경보 유형: NULL(정상), ADMIN(관리), WARNING(투자경고), CAUTION(환기), HALT(거래정지), DELISTING(정리매매)';
 COMMENT ON COLUMN stocks.created_at IS '생성 일시';
 COMMENT ON COLUMN stocks.updated_at IS '수정 일시';
 

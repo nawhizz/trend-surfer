@@ -3,6 +3,7 @@ import sys
 import os
 import json
 from datetime import datetime
+import pandas as pd
 
 # Add projects root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'backend')))
@@ -86,20 +87,64 @@ def main():
     # Wait, simple "Volume Ratio" is hard without history.
     # Let's    # 2.5 Fetch Stock Names for Target Tickers
     print("Fetching Stock Names...")
-    ticker_name_map = {}
+    ticker_name_map = {}  # ticker -> name
+    ticker_excluded = set()  # 제외할 종목 집합
     batch_size = 50 # Define batch_size here for use in name fetching
+    
+    # 제외 키워드 (종목명에 포함되면 제외)
+    exclude_keywords = ['ETF', 'ETN', '스팩', 'SPAC', '관리종목', '정리매매', '투자위험', '투자경고', '거래정지']
+    
     try:
-        # Batch fetch names
+        # Batch fetch names, is_preferred, and warning_type
         total_batches = (len(target_tickers) + batch_size - 1) // batch_size
         for i in range(0, len(target_tickers), batch_size):
             batch = target_tickers[i:i+batch_size]
-            resp = supabase.table("stocks").select("ticker, name").in_("ticker", batch).execute()
+            resp = supabase.table("stocks").select("ticker, name, is_preferred, warning_type").in_("ticker", batch).execute()
             if resp.data:
                 for item in resp.data:
-                    ticker_name_map[item['ticker']] = item['name']
+                    ticker = item['ticker']
+                    name = item['name'] or ''
+                    is_preferred = item.get('is_preferred', False)
+                    warning_type = item.get('warning_type')  # 시장경보 유형
+                    
+                    ticker_name_map[ticker] = name
+                    
+                    # 제외 조건 검사
+                    should_exclude = False
+                    
+                    # 1. 우선주 제외
+                    if is_preferred:
+                        should_exclude = True
+                    
+                    # 2. 시장경보 종목 제외 (관리종목, 투자경고, 환기종목, 거래정지, 정리매매)
+                    if not should_exclude and warning_type:
+                        should_exclude = True
+                    
+                    # 3. 종목명에 제외 키워드 포함 시 제외
+                    if not should_exclude:
+                        for keyword in exclude_keywords:
+                            if keyword in name:
+                                should_exclude = True
+                                break
+                    
+                    # 4. 종목코드 패턴으로 ETF/ETN 식별 (6자리 숫자가 아니면 제외)
+                    if not should_exclude:
+                        if not (ticker.isdigit() and len(ticker) == 6):
+                            should_exclude = True
+                    
+                    if should_exclude:
+                        ticker_excluded.add(ticker)
+                        
     except Exception as e:
         print(f"Error fetching stock names: {e}")
         # Continue even if name fetch fails
+    
+    # 제외 종목 필터링
+    original_count = len(target_tickers)
+    if ticker_excluded:
+        target_tickers = [t for t in target_tickers if t not in ticker_excluded]
+        filtered_candle_map = {k: v for k, v in filtered_candle_map.items() if k not in ticker_excluded}
+    print(f"Excluded {original_count - len(target_tickers)} stocks (우선주/ETF/ETN/스팩 등). Remaining: {len(target_tickers)}")
 
     # 3. Fetch Indicators for Target Tickers Only (Batching)
     print("Fetching Daily Indicators for targets...")
@@ -212,6 +257,46 @@ def main():
         print(f"{s['ticker']:<8} | {s['close']:<10} | {s['strength']:<8} | {s['amount_b']:<8} | {s['ma_20']:<10} | {s['high_20']:<10} | {s['atr_20']:<10} | {s['stage']:<5} | {s['name']}")
         
     print("-" * 125)
+
+    # 6. 엑셀 파일로 결과 저장
+    if signals:
+        # DataFrame 생성
+        df = pd.DataFrame(signals)
+        
+        # 컬럼 정리 (중복 제거 및 순서 정리)
+        output_columns = [
+            'ticker', 'name', 'close', 'strength', 'amount_b', 
+            'ma_20', 'high_20', 'atr_20', 'stage'
+        ]
+        
+        # 중복 컬럼이 있을 수 있으므로 안전하게 처리
+        df = df.loc[:, ~df.columns.duplicated()]
+        df = df[[col for col in output_columns if col in df.columns]]
+        
+        # 컬럼명 한글화
+        df.columns = [
+            '종목코드', '종목명', '종가', '강도(%)', '거래대금(억)', 
+            'MA(20)', 'HIGH(20)', 'ATR(20)', 'Stage'
+        ]
+        
+        # 결과 저장 디렉토리 생성
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.abspath(os.path.join(script_dir, '..'))
+        results_dir = os.path.join(project_root, 'results')
+        
+        if not os.path.exists(results_dir):
+            os.makedirs(results_dir)
+            
+        # 엑셀 파일명 생성 (날짜 포함)
+        date_str = target_date.replace('-', '')
+        filename = f"signal_{date_str}.xlsx"
+        filepath = os.path.join(results_dir, filename)
+        
+        try:
+            df.to_excel(filepath, index=False, engine='openpyxl')
+            print(f"\n[Excel] 결과 저장 완료: {filepath}")
+        except Exception as e:
+            print(f"\n[Error] 엑셀 저장 실패: {e}")
 
 if __name__ == "__main__":
     main()
