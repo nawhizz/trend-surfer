@@ -33,6 +33,9 @@ class IndicatorCalculator:
     HIGH_PERIODS = [10, 20]   # 10일(불타기), 20일(신고가 돌파) 신호용
     RSI_PERIODS = [14]        # 역추세 스윙 전략용
     EMA_SLOPE_PERIODS = [50]  # EMA 기울기 계산용 (구조 필터)
+    
+    # 이동평균 스테이지 분석용 (고정)
+    EMA_STAGE_PARAMS = {"short": 5, "medium": 20, "long": 40}
 
     def __init__(self):
         pass
@@ -206,6 +209,78 @@ class IndicatorCalculator:
                 slope[i] = (ema[i] - ema[i-1]) / atr[i]
         
         return slope
+
+    # ========================================
+    # 이동평균 스테이지 (EMA STAGE) 계산
+    # ========================================
+
+    def calculate_ema_stage(
+        self,
+        close_prices: np.ndarray,
+    ) -> np.ndarray:
+        """
+        이동평균 스테이지 (1~6) 계산
+        
+        단기(5), 중기(20), 장기(40) EMA의 배열에 따라 스테이지 결정
+        
+        | 스테이지 | 명칭 | 배열 (위>아래) |
+        |---|---|---|
+        | 1 | 안정 상승기 | 단기 > 중기 > 장기 |
+        | 2 | 하락 변화기1 | 중기 > 단기 > 장기 |
+        | 3 | 하락 변화기2 | 중기 > 장기 > 단기 |
+        | 4 | 안정 하락기 | 장기 > 중기 > 단기 |
+        | 5 | 상승 변화기1 | 장기 > 단기 > 중기 |
+        | 6 | 상승 변화기2 | 단기 > 장기 > 중기 |
+
+        Args:
+            close_prices: 종가 배열
+
+        Returns:
+            스테이지 값 배열 (1~6, 계산 불가 시 0 또는 NaN)
+            여기서는 관례적으로 0을 반환하도록 설정 (DB 저장은 필터링됨)
+        """
+        short_period = self.EMA_STAGE_PARAMS["short"]
+        medium_period = self.EMA_STAGE_PARAMS["medium"]
+        long_period = self.EMA_STAGE_PARAMS["long"]
+        
+        # EMA 계산
+        ema_short = talib.EMA(close_prices, timeperiod=short_period)
+        ema_medium = talib.EMA(close_prices, timeperiod=medium_period)
+        ema_long = talib.EMA(close_prices, timeperiod=long_period)
+        
+        stages = np.full(len(close_prices), np.nan)
+        
+        # 계산 가능한 시점부터 반복
+        start_idx = long_period - 1
+        
+        for i in range(start_idx, len(close_prices)):
+            s = ema_short[i]
+            m = ema_medium[i]
+            l = ema_long[i]
+            
+            if np.isnan(s) or np.isnan(m) or np.isnan(l):
+                continue
+                
+            if s > m > l:
+                stages[i] = 1
+            elif m > s > l:
+                stages[i] = 2
+            elif m > l > s:
+                stages[i] = 3
+            elif l > m > s:
+                stages[i] = 4
+            elif l > s > m:
+                stages[i] = 5
+            elif s > l > m:
+                stages[i] = 6
+            else:
+                # 이론상 6개 케이스 외에는 존재하지 않으나 (3개 값 상이할 경우)
+                # 값이 같은 경우가 있을 수 있음. 이 경우 이전 스테이지 유지하거나 처리 필요
+                # 여기서는 0으로 처리 (혹은 이전 값 유지)
+                # 단순화를 위해 일단 0 처리 하되, 추후 보완 가능
+                stages[i] = 0
+                
+        return stages
 
     # ========================================
     # 데이터 조회 함수
@@ -477,6 +552,19 @@ class IndicatorCalculator:
                     start_date=start_date,
                 )
             )
+            
+        # 9. EMA STAGE 계산
+        stage_values = self.calculate_ema_stage(close_prices)
+        indicators.extend(
+            self._build_indicator_records(
+                ticker=ticker,
+                dates=dates,
+                values=stage_values,
+                indicator_type="EMA_STAGE",
+                params=self.EMA_STAGE_PARAMS,
+                start_date=start_date,
+            )
+        )
 
         print(f"Calculated {len(indicators)} total indicator records for {ticker}")
         return indicators

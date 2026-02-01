@@ -1,0 +1,29 @@
+[2026-01-29 15:26:52.705378] Running Strategy Scanner for 2026-01-20...
+Fetching Daily Candles...
+Fetched 2729 candles.
+Filtering candles by amount/price...
+Filtered down to 504 tickers (Amount >= 5,000,000,000, Price >= 1,000).
+Fetching Stock Names...
+Fetching Daily Indicators for targets...
+Batch 1/11 fetched.
+Batch 2/11 fetched.
+Batch 3/11 fetched.
+Batch 4/11 fetched.
+Batch 5/11 fetched.
+Batch 6/11 fetched.
+Batch 7/11 fetched.
+Batch 8/11 fetched.
+Batch 9/11 fetched.
+Batch 10/11 fetched.
+Batch 11/11 fetched.
+Fetched 4494 indicators for targets.
+Analyzing signals...
+
+[Signal Result] Found 114 stocks. Showing Top 3 by Intraday Strength.
+-----------------------------------------------------------------------------------------------------------------------------
+Ticker   | Close      | Str(%)   | Amt(B)   | MA(20)     | HIGH(20)   | ATR(20)    | STAGE | Name
+-----------------------------------------------------------------------------------------------------------------------------
+148780   | 1713       | 29.97    | 96.4     | 1352.7     | 1403.0     | 89.67      | 0     | 비큐AI
+094820   | 17610      | 29.3     | 2006.3   | 13334.0    | 14500.0    | 866.17     | 0     | 일진파워
+354200   | 1952       | 29.19    | 109.6    | 1498.2     | 1579.0     | 69.79      | 0     | 엔젠바이오
+-----------------------------------------------------------------------------------------------------------------------------

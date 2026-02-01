@@ -84,7 +84,8 @@ INSERT INTO indicator_metadata (indicator_type, description, required_params, ou
     ('MACD', 'MACD (Moving Average Convergence Divergence)', '{"short": "int", "long": "int", "signal": "int"}', 'multiple'),
     ('BB', '볼린저 밴드 (Bollinger Bands)', '{"period": "int", "std": "float"}', 'multiple'),
     ('ATR', '평균 변동성 지표 (Average True Range)', '{"period": "int"}', 'single'),
-    ('HIGH', '기간 내 최고 종가 (Period High Close)', '{"period": "int"}', 'single')
+    ('HIGH', '기간 내 최고 종가 (Period High Close)', '{"period": "int"}', 'single'),
+    ('EMA_STAGE', '이동평균선 대순환 스테이지 (EMA 기반 1~6)', '{"short": "int", "medium": "int", "long": "int"}', 'single')
 ON CONFLICT (indicator_type) DO NOTHING;
 
 -- 4. daily_technical_indicators (기술적 지표 - 파라미터 기반)

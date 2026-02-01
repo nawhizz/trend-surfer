@@ -115,7 +115,7 @@ def main():
                    .select("ticker, indicator_type, params, value")
                    .eq("date", target_date)
                    .in_("ticker", batch)
-                   .in_("indicator_type", ["MA", "HIGH", "ATR"])
+                   .in_("indicator_type", ["MA", "HIGH", "ATR", "EMA_STAGE"])
                    .execute())
             
             if resp.data:
@@ -146,6 +146,8 @@ def main():
             ind_map[t]['HIGH_20'] = val
         elif itype == 'ATR' and params.get('period') == 20:
             ind_map[t]['ATR_20'] = val
+        elif itype == 'EMA_STAGE':
+            ind_map[t]['EMA_STAGE'] = val
 
     # 4. Apply Logic
     signals = []
@@ -164,6 +166,7 @@ def main():
         ma_20 = i_data.get('MA_20')
         high_20 = i_data.get('HIGH_20')
         atr_20 = i_data.get('ATR_20')
+        ema_stage = i_data.get('EMA_STAGE', 0)
         
         if ma_20 is None or high_20 is None:
             continue
@@ -185,7 +188,10 @@ def main():
                 'amount_b': round(amount / 100000000, 1), # In Billions
                 'ma_20': ma_20,
                 'high_20': high_20,
-                'atr_20': atr_20 if atr_20 is not None else 0 # Handle potential missing ATR
+                'ma_20': ma_20,
+                'high_20': high_20,
+                'atr_20': atr_20 if atr_20 is not None else 0, # Handle potential missing ATR
+                'stage': int(ema_stage) if ema_stage is not None else 0
             })
 
     # 5. Sort & Output
@@ -197,15 +203,15 @@ def main():
         limit = len(signals)
         
     print(f"\n[Signal Result] Found {len(signals)} stocks. Showing Top {limit if limit < len(signals) else 'All'} by Intraday Strength.")
-    print("-" * 115)
-    print(f"{'Ticker':<8} | {'Close':<10} | {'Str(%)':<8} | {'Amt(B)':<8} | {'MA(20)':<10} | {'HIGH(20)':<10} | {'ATR(20)':<10} | {'Name'}")
-    print("-" * 115)
+    print("-" * 125)
+    print(f"{'Ticker':<8} | {'Close':<10} | {'Str(%)':<8} | {'Amt(B)':<8} | {'MA(20)':<10} | {'HIGH(20)':<10} | {'ATR(20)':<10} | {'STAGE':<5} | {'Name'}")
+    print("-" * 125)
     
     for s in signals[:limit]:
         # Name is last to avoid alignment issues
-        print(f"{s['ticker']:<8} | {s['close']:<10} | {s['strength']:<8} | {s['amount_b']:<8} | {s['ma_20']:<10} | {s['high_20']:<10} | {s['atr_20']:<10} | {s['name']}")
+        print(f"{s['ticker']:<8} | {s['close']:<10} | {s['strength']:<8} | {s['amount_b']:<8} | {s['ma_20']:<10} | {s['high_20']:<10} | {s['atr_20']:<10} | {s['stage']:<5} | {s['name']}")
         
-    print("-" * 115)
+    print("-" * 125)
 
 if __name__ == "__main__":
     main()
