@@ -1,11 +1,14 @@
-
 import pandas as pd
 import FinanceDataReader as fdr
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from app.services.krx_collector import krx_collector
 from app.db.client import supabase
+from app.core.logger import get_logger
+from app.core.constants import BATCH_READ_PAGE
 import time
+
+logger = get_logger(__name__)
 
 class HybridCollector:
     """
@@ -33,7 +36,7 @@ class HybridCollector:
             s_str = current.strftime("%Y-%m-%d")
             e_str = chunk_end.strftime("%Y-%m-%d")
             
-            print(f"\n>>> Processing Chunk: {s_str} ~ {e_str}")
+            logger.info(f"청크 처리 시작: {s_str} ~ {e_str}")
             self._process_chunk(s_str, e_str, ticker_list)
             
             current = chunk_end + relativedelta(days=1)
@@ -41,19 +44,19 @@ class HybridCollector:
     def _process_chunk(self, start_date: str, end_date: str, ticker_list: list[str] = None):
         # 1. KRX 데이터 선수집 (Amount, MarketCap 확보)
         # map[ticker][date] = {amount, market_cap, open, high, low, close, volume, change_rate}
-        print("  1. Pre-fetching KRX data (Amount/Cap)...")
+        logger.info("  1. KRX 데이터 선수집 (거래대금/시가총액)...")
         # KRX 데이터는 시장 전체 데이터를 가져오는 것이 효율적이므로 전체 조회 유지 (특정 종목만 조회하는 API가 느릴 수 있음)
         # 단, 메모리 절약을 위해 ticker_list가 있으면 필터링할 수도 있으나, KRX 일별 조회는 전체가 기본임.
         krx_map = self._fetch_krx_map(start_date, end_date)
-        print(f"     -> Cached KRX data for {len(krx_map)} tickers.")
+        logger.info(f"     KRX 데이터 캐시: {len(krx_map)}개 종목")
         
         # 2. 활성 종목 리스트 가져오기
         if ticker_list:
-             active_tickers = ticker_list
-             print(f"  2. Processing {len(active_tickers)} tickers (Filtered by user inputs)...")
+            active_tickers = ticker_list
+            logger.info(f"  2. 지정 종목 {len(active_tickers)}개 처리 시작")
         else:
-             active_tickers = self._get_active_tickers()
-             print(f"  2. Processing {len(active_tickers)} tickers with FDR...")
+            active_tickers = self._get_active_tickers()
+            logger.info(f"  2. 활성 종목 {len(active_tickers)}개 FDR 처리 시작")
         
         # 3. 종목별 FDR 데이터 수집 및 병합
         total_upserted = 0
@@ -132,21 +135,23 @@ class HybridCollector:
                                  candles.append(candle)
                                  
                          if candles:
-                             print(f"     [Fallback] Used KRX data for {ticker} ({len(candles)} rows)")
+                             logger.debug(f"     [Fallback] {ticker}: KRX 데이터 사용 ({len(candles)}건)")
 
                 # DB Upsert
                 if candles:
                     supabase.table("daily_candles").upsert(candles, on_conflict="ticker, date").execute()
                     total_upserted += len(candles)
             
+            except (KeyError, ValueError) as e:
+                logger.warning(f"     {ticker} 데이터 파싱 오류: {e}")
             except Exception as e:
-                print(f"     Error processing {ticker}: {e}")
-                
+                logger.error(f"     {ticker} 처리 실패: {e}")
+
             # Progress Log
             if (idx + 1) % 100 == 0:
-                print(f"     Processed {idx + 1}/{len(active_tickers)} tickers...")
+                logger.info(f"     진행: {idx + 1}/{len(active_tickers)}")
 
-        print(f"  [Chunk Done] Total upserted rows: {total_upserted}")
+        logger.info(f"  [청크 완료] 총 {total_upserted}건 upsert")
 
 
     def _fetch_krx_map(self, start_date: str, end_date: str) -> dict:
@@ -195,7 +200,7 @@ class HybridCollector:
                 time.sleep(0.1) # Rate limit
                 
             except Exception as e:
-                print(f"     Error pre-fetching KRX for {day_str_db}: {e}")
+                logger.warning(f"     KRX 선수집 실패 ({day_str_db}): {e}")
                 
         return result_map
 
@@ -205,13 +210,12 @@ class HybridCollector:
             # 페이징 필요
             all_tickers = []
             offset = 0
-            limit = 1000
             while True:
-                resp = supabase.table("stocks").select("ticker").eq("is_active", True).range(offset, offset+limit-1).execute()
+                resp = supabase.table("stocks").select("ticker").eq("is_active", True).range(offset, offset+BATCH_READ_PAGE-1).execute()
                 if not resp.data: break
                 all_tickers.extend([x['ticker'] for x in resp.data])
-                offset += limit
-                if len(resp.data) < limit: break
+                offset += BATCH_READ_PAGE
+                if len(resp.data) < BATCH_READ_PAGE: break
             return all_tickers
         except Exception:
             return []

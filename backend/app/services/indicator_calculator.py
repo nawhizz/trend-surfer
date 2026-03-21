@@ -11,7 +11,9 @@ ta-lib 패키지를 사용하여 다양한 기술적 지표를 계산하고 DB�
 """
 
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+from threading import Lock
 from typing import Optional
 
 import numpy as np
@@ -19,6 +21,10 @@ import pandas as pd
 import talib
 
 from app.db.client import supabase
+from app.core.logger import get_logger
+from app.core.constants import BATCH_READ_PAGE, BATCH_INDICATOR_UPSERT, PARALLEL_WORKERS
+
+logger = get_logger(__name__)
 
 
 class IndicatorCalculator:
@@ -318,19 +324,18 @@ class IndicatorCalculator:
         # Supabase 기본 row limit이 있으므로 페이징 처리
         all_data = []
         offset = 0
-        limit = 1000
 
         while True:
-            response = query.range(offset, offset + limit - 1).execute()
+            response = query.range(offset, offset + BATCH_READ_PAGE - 1).execute()
             rows = response.data
 
             if not rows:
                 break
 
             all_data.extend(rows)
-            offset += limit
+            offset += BATCH_READ_PAGE
 
-            if len(rows) < limit:
+            if len(rows) < BATCH_READ_PAGE:
                 break
 
         df = pd.DataFrame(all_data)
@@ -365,19 +370,19 @@ class IndicatorCalculator:
         Returns:
             계산된 지표 딕셔너리 리스트
         """
-        print(f"[{datetime.now()}] Calculating MA for {ticker}...")
+        logger.debug(f"{ticker} MA 계산 시작")
 
         # 1. 일봉 데이터 조회 (이동평균 계산을 위해 충분한 과거 데이터 필요)
         # 가장 긴 이동평균 기간(240일)을 고려하여 여유있게 조회
         df = self.fetch_candles(ticker, start_date=None, end_date=end_date)
 
         if df.empty:
-            print(f"No candle data found for {ticker}")
+            logger.debug(f"{ticker}: 캔들 데이터 없음")
             return []
 
         if len(df) < max(self.SMA_PERIODS + self.EMA_PERIODS):
-            print(
-                f"Insufficient data for {ticker}: {len(df)} rows (need at least {max(self.SMA_PERIODS + self.EMA_PERIODS)})"
+            logger.debug(
+                f"{ticker}: 데이터 부족 ({len(df)}건, 필요: {max(self.SMA_PERIODS + self.EMA_PERIODS)})"
             )
             # 데이터가 부족해도 계산 가능한 범위에서는 진행
 
@@ -416,7 +421,7 @@ class IndicatorCalculator:
                 )
             )
 
-        print(f"Calculated {len(indicators)} MA/EMA records for {ticker}")
+        logger.debug(f"{ticker}: MA/EMA {len(indicators)}건 계산 완료")
         return indicators
 
     def calculate_all_indicators_for_ticker(
@@ -438,14 +443,14 @@ class IndicatorCalculator:
         Returns:
             계산된 지표 딕셔너리 리스트
         """
-        print(f"[{datetime.now()}] Calculating all indicators for {ticker}...")
+        logger.debug(f"{ticker} 전체 지표 계산 시작")
 
         # 1. 일봉 데이터 조회 (OHLC 전체)
         # 가장 긴 기간(240일)을 고려하여 충분한 과거 데이터 조회
         df = self.fetch_candles(ticker, start_date=None, end_date=end_date)
 
         if df.empty:
-            print(f"No candle data found for {ticker}")
+            logger.debug(f"{ticker}: 캔들 데이터 없음")
             return []
 
         # 최소 데이터 수 체크
@@ -453,9 +458,8 @@ class IndicatorCalculator:
             self.SMA_PERIODS + self.EMA_PERIODS + self.ATR_PERIODS + self.HIGH_PERIODS + self.RSI_PERIODS
         )
         if len(df) < required_periods:
-            print(
-                f"Warning: Insufficient data for {ticker}: {len(df)} rows "
-                f"(recommended: {required_periods}). Calculating available indicators."
+            logger.debug(
+                f"{ticker}: 데이터 부족 ({len(df)}건, 권장: {required_periods}). 가능한 범위에서 계산"
             )
 
         # 2. numpy 배열로 변환
@@ -566,7 +570,7 @@ class IndicatorCalculator:
             )
         )
 
-        print(f"Calculated {len(indicators)} total indicator records for {ticker}")
+        logger.debug(f"{ticker}: 전체 지표 {len(indicators)}건 계산 완료")
         return indicators
 
     def _build_indicator_records(
@@ -632,12 +636,10 @@ class IndicatorCalculator:
         if not indicators:
             return 0
 
-        chunk_size = 500  # Supabase 배치 크기
-
         total_saved = 0
 
-        for i in range(0, len(indicators), chunk_size):
-            chunk = indicators[i : i + chunk_size]
+        for i in range(0, len(indicators), BATCH_INDICATOR_UPSERT):
+            chunk = indicators[i : i + BATCH_INDICATOR_UPSERT]
 
             try:
                 # PK: (ticker, date, indicator_type, params)
@@ -645,10 +647,10 @@ class IndicatorCalculator:
                     chunk, on_conflict="ticker, date, indicator_type, params"
                 ).execute()
                 total_saved += len(chunk)
-                print(f"Saved indicators {i} ~ {i + len(chunk)} / {len(indicators)}")
+                logger.debug(f"지표 저장 {i} ~ {i + len(chunk)} / {len(indicators)}")
 
             except Exception as e:
-                print(f"Error saving indicators: {e}")
+                logger.error(f"지표 저장 실패 ({i} ~ {i + len(chunk)}): {e}")
 
         return total_saved
 
@@ -678,14 +680,13 @@ class IndicatorCalculator:
                 # Supabase 기본 row limit(1000건) 대응을 위한 페이징 처리
                 all_tickers = []
                 offset = 0
-                limit = 1000
 
                 while True:
                     response = (
                         supabase.table("stocks")
                         .select("ticker")
                         .eq("is_active", True)
-                        .range(offset, offset + limit - 1)
+                        .range(offset, offset + BATCH_READ_PAGE - 1)
                         .execute()
                     )
 
@@ -693,38 +694,55 @@ class IndicatorCalculator:
                         break
 
                     all_tickers.extend([row["ticker"] for row in response.data])
-                    offset += limit
+                    offset += BATCH_READ_PAGE
 
-                    if len(response.data) < limit:
+                    if len(response.data) < BATCH_READ_PAGE:
                         break
 
                 tickers = all_tickers
-                print(f"Loaded {len(tickers)} active tickers from DB.")
+                logger.info(f"활성 종목 {len(tickers)}개 로드 완료")
 
             except Exception as e:
-                print(f"Error fetching ticker list: {e}")
+                logger.error(f"종목 목록 조회 실패: {e}", exc_info=True)
                 return
 
+        total = len(tickers)
+        logger.info(f"{total}개 종목 지표 계산 시작 (워커 {PARALLEL_WORKERS}개)")
 
-        print(f"Processing {len(tickers)} tickers...")
+        # 2. 병렬 처리
+        completed = 0
+        failed = 0
+        progress_lock = Lock()
 
-        # 2. 종목별 처리
-        for idx, ticker in enumerate(tickers):
-            try:
-                # 모든 기술적 지표 계산 (MA + EMA + ATR + HIGH)
-                indicators = self.calculate_all_indicators_for_ticker(
-                    ticker, start_date, end_date
-                )
+        def _process_ticker(ticker: str) -> int:
+            """단일 종목 지표 계산 및 저장 (워커 스레드에서 실행)"""
+            indicators = self.calculate_all_indicators_for_ticker(
+                ticker, start_date, end_date
+            )
+            if indicators:
+                return self.save_indicators_to_db(indicators)
+            return 0
 
-                # DB 저장
-                if indicators:
-                    saved = self.save_indicators_to_db(indicators)
-                    print(f"[{idx + 1}/{len(tickers)}] {ticker}: saved {saved} records")
-                else:
-                    print(f"[{idx + 1}/{len(tickers)}] {ticker}: no indicators to save")
+        with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as executor:
+            futures = {
+                executor.submit(_process_ticker, ticker): ticker
+                for ticker in tickers
+            }
 
-            except Exception as e:
-                print(f"[{idx + 1}/{len(tickers)}] Error processing {ticker}: {e}")
+            for future in as_completed(futures):
+                ticker = futures[future]
+                with progress_lock:
+                    completed += 1
+                try:
+                    saved = future.result()
+                    if completed % 100 == 0:
+                        logger.info(f"[{completed}/{total}] 진행 중... (최근: {ticker}, {saved}건)")
+                except Exception as e:
+                    with progress_lock:
+                        failed += 1
+                    logger.error(f"{ticker} 처리 실패: {e}")
+
+        logger.info(f"지표 계산 완료: {completed - failed}/{total} 성공, {failed}건 실패")
 
 
 # 싱글톤 인스턴스

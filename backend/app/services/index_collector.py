@@ -16,7 +16,9 @@ import pandas as pd
 import FinanceDataReader as fdr
 
 from app.db.client import supabase
+from app.core.logger import get_logger
 
+logger = get_logger(__name__)
 
 # 지수 심볼 정의
 INDEX_SYMBOLS = {
@@ -39,7 +41,7 @@ class IndexCollector:
         """
         지수 마스터 데이터가 stocks 테이블에 존재하는지 확인하고 없으면 추가
         """
-        print(f"[{datetime.now()}] 지수 마스터 데이터 확인 및 추가...")
+        logger.info("지수 마스터 데이터 확인 및 추가...")
 
         for ticker, info in INDEX_SYMBOLS.items():
             stock_data = {
@@ -51,9 +53,9 @@ class IndexCollector:
             }
             # upsert로 있으면 업데이트, 없으면 삽입
             supabase.table("stocks").upsert(stock_data).execute()
-            print(f"  - {ticker} ({info['name']}) 확인 완료")
+            logger.debug(f"  {ticker} ({info['name']}) 확인 완료")
 
-        print("지수 마스터 데이터 준비 완료")
+        logger.info("지수 마스터 데이터 준비 완료")
 
     def fetch_index_candles(
         self,
@@ -75,17 +77,17 @@ class IndexCollector:
         target_symbols = [ticker] if ticker else list(INDEX_SYMBOLS.keys())
         end_date = end_date or datetime.now().strftime("%Y-%m-%d")
 
-        print(f"[{datetime.now()}] 지수 데이터 수집 ({start_date} ~ {end_date})...")
+        logger.info(f"지수 데이터 수집 ({start_date} ~ {end_date})")
 
         for symbol in target_symbols:
             try:
-                print(f"  - {symbol} 수집 중...")
+                logger.info(f"  {symbol} 수집 중...")
 
                 # FDR로 지수 데이터 조회
                 df = fdr.DataReader(symbol, start_date, end_date)
 
                 if df.empty:
-                    print(f"    ⚠ {symbol}: 데이터 없음")
+                    logger.warning(f"  {symbol}: 데이터 없음")
                     continue
 
                 candles = []
@@ -117,14 +119,16 @@ class IndexCollector:
                 # DB 저장
                 if candles:
                     supabase.table("daily_candles").upsert(candles).execute()
-                    print(f"    ✓ {symbol}: {len(candles)} rows 저장 완료")
+                    logger.info(f"  {symbol}: {len(candles)}건 저장 완료")
                 else:
-                    print(f"    ⚠ {symbol}: 유효 데이터 없음")
+                    logger.warning(f"  {symbol}: 유효 데이터 없음")
 
+            except (KeyError, ValueError) as e:
+                logger.error(f"  {symbol} 데이터 파싱 오류: {e}")
             except Exception as e:
-                print(f"    ✗ {symbol} 오류: {e}")
+                logger.error(f"  {symbol} 수집 실패: {e}", exc_info=True)
 
-        print("지수 데이터 수집 완료")
+        logger.info("지수 데이터 수집 완료")
 
 
 # 싱글톤 인스턴스

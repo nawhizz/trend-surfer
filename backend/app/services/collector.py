@@ -2,6 +2,10 @@ from datetime import datetime
 import pandas as pd
 import FinanceDataReader as fdr
 from app.db.client import supabase
+from app.core.logger import get_logger
+from app.core.constants import BATCH_WRITE_UPSERT
+
+logger = get_logger(__name__)
 
 class StockCollector:
     def __init__(self):
@@ -12,26 +16,24 @@ class StockCollector:
         [FDR] 전 종목 목록(Ticker, Name)을 최신화합니다.
         fdr.StockListing('KRX') 사용
         """
-        print(f"[{datetime.now()}] Starting Stock List Update (FDR)...")
-        
+        logger.info("종목 마스터 업데이트 시작 (FDR)...")
+
         try:
             # KRX returns both KOSPI and KOSDAQ with price info
             df = fdr.StockListing('KRX')
-            print(f"Fetched {len(df)} tickers from KRX")
+            logger.info(f"KRX에서 {len(df)}개 종목 조회 완료")
 
             # KRX-DESC contains detailed Sector info
             try:
                 df_desc = fdr.StockListing('KRX-DESC')
-                print(f"Fetched {len(df_desc)} tickers from KRX-DESC for Sector info")
-                # Create a map: Code -> {Sector, Industry}
-                # Use to_dict('index') matches index to row dict
+                logger.info(f"KRX-DESC에서 {len(df_desc)}개 종목 섹터 정보 조회 완료")
                 desc_map = df_desc.set_index('Code')[['Sector', 'Industry']].to_dict('index')
-                print(f"Desc Map Size: {len(desc_map)}")
-                if desc_map:
-                     first_key = list(desc_map.keys())[0]
-                     print(f"Sample Desc Key: {first_key}, Value: {desc_map[first_key]}")
+                logger.debug(f"Desc Map 크기: {len(desc_map)}")
+            except (KeyError, ValueError) as e:
+                logger.warning(f"KRX-DESC 데이터 파싱 실패: {e}")
+                desc_map = {}
             except Exception as e:
-                print(f"Warning: Could not fetch KRX-DESC: {e}")
+                logger.warning(f"KRX-DESC 조회 실패: {e}")
                 desc_map = {}
             
             all_stocks = []
@@ -77,27 +79,27 @@ class StockCollector:
             
             # Batch Upsert
             if all_stocks:
-                chunk_size = 1000
-                for i in range(0, len(all_stocks), chunk_size):
-                    chunk = all_stocks[i:i + chunk_size]
+                for i in range(0, len(all_stocks), BATCH_WRITE_UPSERT):
+                    chunk = all_stocks[i:i + BATCH_WRITE_UPSERT]
                     supabase.table("stocks").upsert(chunk).execute()
-                    print(f"Upserted stocks {i} to {i+len(chunk)}")
-                print("Stock list updated successfully.")
-                
+                    logger.debug(f"종목 upsert {i} ~ {i+len(chunk)}")
+                logger.info("종목 마스터 업데이트 완료")
+
                 # Deactivate delisted stocks (not in FDR anymore)
                 fdr_tickers = [stock['ticker'] for stock in all_stocks]
                 try:
-                    # Update is_active=False for stocks not in current FDR list
                     result = supabase.table("stocks").update({"is_active": False}).not_.in_("ticker", fdr_tickers).execute()
                     if result.data:
-                        print(f"Deactivated {len(result.data)} delisted stocks.")
+                        logger.info(f"상장폐지 종목 {len(result.data)}개 비활성화")
                 except Exception as e:
-                    print(f"Warning: Could not deactivate delisted stocks: {e}")
+                    logger.warning(f"상장폐지 종목 비활성화 실패: {e}")
             else:
-                print("No stocks found to update.")
+                logger.warning("업데이트할 종목이 없습니다.")
 
+        except (KeyError, ValueError) as e:
+            logger.error(f"FDR 데이터 파싱 오류: {e}", exc_info=True)
         except Exception as e:
-            print(f"Error updating stock list with FDR: {e}")
+            logger.error(f"종목 마스터 업데이트 실패: {e}", exc_info=True)
 
     def fetch_daily_ohlcv(self, date_str: str = None):
         """
@@ -116,7 +118,7 @@ class StockCollector:
         # If date_str is provided and is NOT today, FDR StockListing cannot fetch it easily in bulk.
         # ideally we should check if date_str matches today, otherwise warn.
         
-        print(f"[{datetime.now()}] Starting Daily Candle Collection (FDR-StockListing) for {target_date}...")
+        logger.info(f"일봉 데이터 수집 시작 (FDR) - {target_date}")
 
         try:
             df = fdr.StockListing('KRX')
@@ -172,17 +174,18 @@ class StockCollector:
             
             # Batch Insert
             if all_candles:
-                chunk_size = 1000
-                for i in range(0, len(all_candles), chunk_size):
-                    chunk = all_candles[i:i + chunk_size]
+                for i in range(0, len(all_candles), BATCH_WRITE_UPSERT):
+                    chunk = all_candles[i:i + BATCH_WRITE_UPSERT]
                     supabase.table("daily_candles").upsert(chunk).execute()
-                    print(f"Inserted candles {i} to {i+len(chunk)}")
-                print(f"Daily candles updated successfully for {target_date}.")
+                    logger.debug(f"캔들 upsert {i} ~ {i+len(chunk)}")
+                logger.info(f"{target_date} 일봉 데이터 {len(all_candles)}건 저장 완료")
             else:
-                print("No candles to insert.")
+                logger.warning("저장할 캔들 데이터가 없습니다.")
 
+        except (KeyError, ValueError) as e:
+            logger.error(f"FDR 캔들 데이터 파싱 오류: {e}", exc_info=True)
         except Exception as e:
-            print(f"Error updating daily candles: {e}")
+            logger.error(f"일봉 데이터 수집 실패: {e}", exc_info=True)
 
     def fetch_historical_candles(self, start_date: str, end_date: str, ticker: str = None):
         """
@@ -193,7 +196,7 @@ class StockCollector:
             end_date (str): 종료일 (YYYY-MM-DD)
             ticker (str, optional): 특정 종목 코드. None이면 전체 활성 종목 대상.
         """
-        print(f"[{datetime.now()}] Starting Historical Candle Collection ({start_date} ~ {end_date})...")
+        logger.info(f"과거 캔들 수집 시작 ({start_date} ~ {end_date})")
         
         target_tickers = []
         if ticker:
@@ -203,9 +206,9 @@ class StockCollector:
             try:
                 response = supabase.table("stocks").select("ticker").eq("is_active", True).execute()
                 target_tickers = [item['ticker'] for item in response.data]
-                print(f"Found {len(target_tickers)} active tickers to process.")
+                logger.info(f"활성 종목 {len(target_tickers)}개 조회 완료")
             except Exception as e:
-                print(f"Error fetching active tickers: {e}")
+                logger.error(f"활성 종목 조회 실패: {e}", exc_info=True)
                 return
 
         total_count = len(target_tickers)
@@ -215,7 +218,7 @@ class StockCollector:
                 df = fdr.DataReader(code, start_date, end_date)
                 
                 if df.empty:
-                    print(f"[{idx+1}/{total_count}] No data for {code}")
+                    logger.debug(f"[{idx+1}/{total_count}] {code}: 데이터 없음")
                     continue
 
                 candles = []
@@ -265,12 +268,14 @@ class StockCollector:
 
                 if candles:
                     supabase.table("daily_candles").upsert(candles).execute()
-                    print(f"[{idx+1}/{total_count}] Upserted {len(candles)} rows for {code}")
+                    logger.debug(f"[{idx+1}/{total_count}] {code}: {len(candles)}건 저장")
                 else:
-                    print(f"[{idx+1}/{total_count}] No valid rows for {code}")
+                    logger.debug(f"[{idx+1}/{total_count}] {code}: 유효 데이터 없음")
 
+            except (KeyError, ValueError) as e:
+                logger.warning(f"[{idx+1}/{total_count}] {code} 데이터 파싱 오류: {e}")
             except Exception as e:
-                print(f"[{idx+1}/{total_count}] Error processing {code}: {e}")
+                logger.error(f"[{idx+1}/{total_count}] {code} 처리 실패: {e}")
 
 
 collector = StockCollector()

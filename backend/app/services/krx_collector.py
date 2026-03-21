@@ -4,28 +4,37 @@ import pandas as pd
 from datetime import datetime
 import time
 from app.db.client import supabase
+from app.core.logger import get_logger
+
+logger = get_logger(__name__)
 
 class KRXCollector:
     def __init__(self):
         self.api_key = os.getenv("KRX_API_KEY")
-        # Using the base URL from the user's working notebook
         self.base_url = "https://data-dbg.krx.co.kr/svc/apis/sto"
         self.headers = {
             "AUTH_KEY": self.api_key,
             "Content-Type": "application/json",
             "Accept": "application/json"
         }
-        
+
     def _post(self, endpoint: str, payload: dict):
         url = self.base_url + endpoint
         try:
             response = requests.post(url, headers=self.headers, json=payload, timeout=30)
             if response.status_code != 200:
-                print(f"KRX API Error [{endpoint}]: {response.status_code} - {response.text[:200]}")
+                logger.error(f"KRX API 오류 [{endpoint}]: HTTP {response.status_code}")
+                logger.debug(f"KRX API 응답 본문: {response.text[:200]}")
                 return {}
             return response.json()
-        except Exception as e:
-            print(f"Exception calling KRX API [{endpoint}]: {e}")
+        except requests.Timeout:
+            logger.error(f"KRX API 타임아웃 [{endpoint}]")
+            return {}
+        except requests.ConnectionError:
+            logger.error(f"KRX API 연결 실패 [{endpoint}]")
+            return {}
+        except requests.RequestException as e:
+            logger.error(f"KRX API 요청 오류 [{endpoint}]: {e}")
             return {}
 
     def fetch_market_ohlcv_by_date(self, target_date: str):
@@ -33,19 +42,19 @@ class KRXCollector:
         Fetch OHLCV + Amount for all stocks (KOSPI/KOSDAQ) on a specific date.
         target_date: YYYYMMDD
         """
-        print(f"[{datetime.now()}] Fetching KRX Daily Trade for {target_date}...")
+        logger.info(f"KRX 일별 거래 데이터 조회: {target_date}")
         
         all_candles = []
         
         # 1. KOSPI
         kospi_data = self._post("/stk_bydd_trd", {"basDd": target_date})
         kospi_rows = kospi_data.get("OutBlock_1", [])
-        print(f"Fetched {len(kospi_rows)} KOSPI rows.")
+        logger.debug(f"KOSPI {len(kospi_rows)}건 조회")
         
         # 2. KOSDAQ
         kosdaq_data = self._post("/ksq_bydd_trd", {"basDd": target_date})
         kosdaq_rows = kosdaq_data.get("OutBlock_1", [])
-        print(f"Fetched {len(kosdaq_rows)} KOSDAQ rows.")
+        logger.debug(f"KOSDAQ {len(kosdaq_rows)}건 조회")
         
         raw_items = kospi_rows + kosdaq_rows
         
@@ -148,11 +157,11 @@ class KRXCollector:
                         break
                 
                 valid_tickers_db = set(all_tickers)
-                print(f"Loaded {len(valid_tickers_db)} valid tickers from DB.")
+                logger.info(f"DB에서 {len(valid_tickers_db)}개 유효 종목 로드")
             except Exception as e:
-                print(f"Error fetching valid tickers: {e}")
+                logger.error(f"유효 종목 조회 실패: {e}", exc_info=True)
         else:
-             print(f"Backfilling strictly for {len(target_tickers)} tickers...")
+            logger.info(f"지정 종목 {len(target_tickers)}개 백필 시작")
 
         for i in range(delta.days + 1):
             day = start_dt + timedelta(days=i)
@@ -190,9 +199,9 @@ class KRXCollector:
                     try:
                         # Use conflict on ticker/date
                         supabase.table("daily_candles").upsert(chunk, on_conflict="ticker, date").execute()
-                        print(f"Upserted {j} ~ {j+len(chunk)} / {total}")
+                        logger.debug(f"Upsert {j} ~ {j+len(chunk)} / {total}")
                     except Exception as e:
-                        print(f"Database error on upsert: {e}")  
+                        logger.error(f"DB upsert 오류: {e}")  
             
             # Rate limit politeness
             time.sleep(0.2)

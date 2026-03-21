@@ -6,28 +6,31 @@ from datetime import datetime
 # Add backend to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'backend')))
 from app.services.collector import collector
+from app.core.logger import get_logger
 from dotenv import load_dotenv
 
 # Load env variables
 env_path = os.path.join(os.path.dirname(__file__), '..', 'backend', '.env')
 load_dotenv(dotenv_path=env_path)
 
+logger = get_logger(__name__)
+
 def main():
     parser = argparse.ArgumentParser(description="Run Stock Collector")
     parser.add_argument("--mode", required=True, choices=['tickers', 'daily'], help="Collection mode: 'tickers' (Update Master) or 'daily' (Fetch Today's Price)")
     parser.add_argument("--date", help="Target date YYYY-MM-DD (default: today, only used for 'daily' mode)")
-    
+
     args = parser.parse_args()
-    
+
     if args.mode == 'tickers':
-        print("Running Stock List Update...")
+        logger.info("종목 마스터 업데이트 실행")
         collector.update_stock_list()
     elif args.mode == 'daily':
         target_date = args.date if args.date else datetime.now().strftime("%Y-%m-%d")
-        print(f"Running Daily Candle Collection for {target_date}...")
+        logger.info(f"일봉 수집 실행: {target_date}")
         collector.fetch_daily_ohlcv(target_date)
 
-    print("Done.")
+    logger.info("완료")
 
 if __name__ == "__main__":
     main()

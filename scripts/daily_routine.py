@@ -4,6 +4,13 @@ import os
 import argparse
 from datetime import datetime
 
+# backend 경로 추가 (logger 사용을 위해)
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'backend')))
+
+from app.core.logger import get_logger
+
+logger = get_logger("daily_routine")
+
 # Script Paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PYTHON_EXE = sys.executable
@@ -11,37 +18,39 @@ PYTHON_EXE = sys.executable
 def run_script(script_name, args=[]):
     script_path = os.path.join(BASE_DIR, script_name)
     cmd = [PYTHON_EXE, script_path] + args
-    
-    print(f"\n{'='*60}")
-    print(f"[{datetime.now()}] Step Started: {script_name} {' '.join(args)}")
-    print(f"{'='*60}")
-    
+
+    logger.info(f"{'='*60}")
+    logger.info(f"단계 시작: {script_name} {' '.join(args)}")
+    logger.info(f"{'='*60}")
+
     try:
-        # Stream output to console
         process = subprocess.Popen(
-            cmd, 
-            stdout=subprocess.PIPE, 
+            cmd,
+            stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            text=True, 
+            text=True,
             encoding='utf-8',
-            errors='replace' # Handle potential encoding issues
+            errors='replace'
         )
-        
+
         for line in process.stdout:
-            # print() relies on PYTHONIOENCODING=utf-8 set in batch file
+            # 서브프로세스 출력은 콘솔에 그대로 전달
             print(line, end='')
-            
+
         process.wait()
-        
+
         if process.returncode != 0:
-            print(f"\n[ERROR] {script_name} failed with exit code {process.returncode}")
+            logger.error(f"{script_name} 실패 (exit code: {process.returncode})")
             return False
-            
-        print(f"[{datetime.now()}] Step Completed: {script_name}")
+
+        logger.info(f"단계 완료: {script_name}")
         return True
-        
+
+    except FileNotFoundError:
+        logger.error(f"스크립트 파일을 찾을 수 없음: {script_path}")
+        return False
     except Exception as e:
-        print(f"\n[ERROR] Failed to execute {script_name}: {e}")
+        logger.error(f"{script_name} 실행 오류: {e}", exc_info=True)
         return False
 
 def main():
@@ -53,45 +62,42 @@ def main():
     args = parser.parse_args()
     
     target_date = args.date if args.date else datetime.now().strftime("%Y-%m-%d")
-    print(f"[{datetime.now()}] Starting Daily Routine for {target_date}")
+    logger.info(f"일일 루틴 시작: {target_date}")
     
-    # 1. Update Tickers based on Master
+    # 1. 종목 마스터 갱신
     if not args.skip_tickers:
         if not run_script("run_collector.py", ["--mode", "tickers"]):
-            print("Routine aborted at Step 1.")
+            logger.error("루틴 중단: 단계 1 (종목 마스터 갱신)")
             sys.exit(1)
-    
-    # 2. Check Adjusted Prices & Backfill/Recalculate
-    if not args.skip_adjust:
-        # Default backfill start 2020-01-01 as per plan
-        if not run_script("update_adjusted_prices.py", ["--date", target_date, "--start_date", "2020-01-01"]):
-             print("Routine aborted at Step 2.")
-             sys.exit(1)
-             
-    # 3. Collect Today's Prices
-    # Note: run_collector.py --mode daily fetches data from KRX/FDR for 'Today' (or target date)
-    if not run_script("run_collector.py", ["--mode", "daily", "--date", target_date]):
-        print("Routine aborted at Step 3.")
-        sys.exit(1)
-        
-    # 4. Calculate Daily Indicators
-    if not run_script("run_daily_indicators.py", ["--date", target_date]):
-        print("Routine aborted at Step 4.")
-        sys.exit(1)
-        
-    # 5. Update Warning Stocks (관리종목, 투자경고 등)
-    if not run_script("update_warning_stocks.py"):
-        print("Warning: Step 5 (Warning Stocks) failed, continuing...")
-        # 경고 종목 업데이트 실패해도 계속 진행
 
-    # 6. Run Strategy & Generate Signals
-    if not run_script("run_strategy.py", ["--date", target_date]):
-        print("Routine aborted at Step 6.")
+    # 2. 수정주가 확인 및 재계산
+    if not args.skip_adjust:
+        if not run_script("update_adjusted_prices.py", ["--date", target_date, "--start_date", "2020-01-01"]):
+            logger.error("루틴 중단: 단계 2 (수정주가 업데이트)")
+            sys.exit(1)
+
+    # 3. 당일 시세 수집
+    if not run_script("run_collector.py", ["--mode", "daily", "--date", target_date]):
+        logger.error("루틴 중단: 단계 3 (당일 시세 수집)")
         sys.exit(1)
-        
-    print(f"\n{'='*60}")
-    print(f"[{datetime.now()}] Daily Routine Finished Successfully.")
-    print(f"{'='*60}")
+
+    # 4. 기술적 지표 계산
+    if not run_script("run_daily_indicators.py", ["--date", target_date]):
+        logger.error("루틴 중단: 단계 4 (지표 계산)")
+        sys.exit(1)
+
+    # 5. 경고종목 업데이트 (실패해도 계속 진행)
+    if not run_script("update_warning_stocks.py"):
+        logger.warning("단계 5 (경고종목 업데이트) 실패, 계속 진행")
+
+    # 6. 전략 신호 스캔
+    if not run_script("run_strategy.py", ["--date", target_date]):
+        logger.error("루틴 중단: 단계 6 (전략 신호 스캔)")
+        sys.exit(1)
+
+    logger.info(f"{'='*60}")
+    logger.info("일일 루틴 완료")
+    logger.info(f"{'='*60}")
 
 if __name__ == "__main__":
     main()

@@ -16,7 +16,10 @@ import numpy as np
 import pandas as pd
 
 from app.db.client import supabase
+from app.core.logger import get_logger
+from app.core.constants import BATCH_INDICATOR_UPSERT
 
+logger = get_logger(__name__)
 
 # 시장 필터에 사용되는 지수
 MARKET_INDICES = {
@@ -316,7 +319,7 @@ class MarketFilter:
         total_saved = 0
 
         for ticker in MARKET_INDICES.keys():
-            print(f"  - {ticker} MA(60) 계산 중...")
+            logger.info(f"  {ticker} MA(60) 계산 중...")
 
             # 충분한 과거 데이터 조회 (MA 계산을 위해)
             from datetime import timedelta
@@ -328,7 +331,7 @@ class MarketFilter:
             df = self._fetch_index_close(ticker, lookback_start, end_date)
 
             if df.empty or len(df) < MARKET_FILTER_MA_PERIOD:
-                print(f"    ⚠ {ticker}: 데이터 부족 (len={len(df)})")
+                logger.warning(f"  {ticker}: 데이터 부족 ({len(df)}건)")
                 continue
 
             # MA 계산
@@ -356,14 +359,13 @@ class MarketFilter:
 
             # DB 저장 (배치)
             if indicators:
-                chunk_size = 500
-                for i in range(0, len(indicators), chunk_size):
-                    chunk = indicators[i : i + chunk_size]
+                for i in range(0, len(indicators), BATCH_INDICATOR_UPSERT):
+                    chunk = indicators[i : i + BATCH_INDICATOR_UPSERT]
                     supabase.table("daily_technical_indicators").upsert(chunk).execute()
-                print(f"    ✓ {ticker}: {len(indicators)} rows 저장 완료")
+                logger.info(f"  {ticker}: {len(indicators)}건 저장 완료")
                 total_saved += len(indicators)
             else:
-                print(f"    ⚠ {ticker}: 저장할 지표 없음")
+                logger.warning(f"  {ticker}: 저장할 지표 없음")
 
         return total_saved
 

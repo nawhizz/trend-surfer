@@ -19,3 +19,14 @@ dependencies = [
     "openpyxl>=3.1.0",
     "uvicorn>=0.40.0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-mock>=3.15.1",
+]
