@@ -8,16 +8,16 @@ echo %date% %time%
 echo ============================================================
 
 REM Change to backend directory
-cd /d D:\Projects\On\trend-surfer\backend
+cd /d D:\Projects\On\trend-surfer-claude\backend
 
 REM Force UTF-8 Encoding
 chcp 65001
 set PYTHONIOENCODING=utf-8
 
 REM 로그 파일 경로
-set LOG_FILE=D:\Projects\On\trend-surfer\logs\daily_routine_%date:~0,4%%date:~5,2%%date:~8,2%.log
+set LOG_FILE=D:\Projects\On\trend-surfer-claude\logs\daily_routine_%date:~0,4%%date:~5,2%%date:~8,2%.log
 REM 로그 디렉토리 생성
-if not exist D:\Projects\On\trend-surfer\logs mkdir D:\Projects\On\trend-surfer\logs
+if not exist D:\Projects\On\trend-surfer-claude\logs mkdir D:\Projects\On\trend-surfer-claude\logs
 
 REM Run daily routine script using uv
 uv run ..\scripts\daily_routine.py > %LOG_FILE% 2>&1

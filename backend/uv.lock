@@ -70,7 +70,7 @@ dev = [
 requires-dist = [
     { name = "bs4", specifier = ">=0.0.2" },
     { name = "fastapi", specifier = ">=0.128.0" },
-    { name = "finance-datareader", specifier = ">=0.9.101" },
+    { name = "finance-datareader", specifier = ">=0.9.110" },
     { name = "openpyxl", specifier = ">=3.1.0" },
     { name = "pandas", specifier = ">=2.3.3" },
     { name = "psycopg2-binary", specifier = ">=2.9.11" },
