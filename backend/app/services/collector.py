@@ -46,8 +46,10 @@ class StockCollector:
 
                 ticker = str(row['Code'])
                 
-                # Preferred Stock Logic
-                is_preferred = not ticker.endswith('0')
+                # 우선주/신주인수권증서(Warrant) 판정
+                # - 6자리 숫자가 아닌 경우 (W, R 등 문자 포함): 신주인수권증서 등 단기 파생 종목
+                # - 6자리 숫자이나 끝자리가 0이 아닌 경우: 우선주
+                is_preferred = not ticker.isdigit() or len(ticker) != 6 or not ticker.endswith('0')
                 
                 # Sector & Industry Logic: Use KRX-DESC if available
                 desc_info = desc_map.get(ticker, {})
@@ -86,11 +88,20 @@ class StockCollector:
                 logger.info("종목 마스터 업데이트 완료")
 
                 # Deactivate delisted stocks (not in FDR anymore)
-                fdr_tickers = [stock['ticker'] for stock in all_stocks]
+                # not_.in_()은 종목 수가 많으면 URI Too Long(414) 에러 발생
+                # → DB 활성 종목을 먼저 조회 후 Python에서 차집합 계산, 개별 비활성화
+                fdr_ticker_set = {stock['ticker'] for stock in all_stocks}
                 try:
-                    result = supabase.table("stocks").update({"is_active": False}).not_.in_("ticker", fdr_tickers).execute()
-                    if result.data:
-                        logger.info(f"상장폐지 종목 {len(result.data)}개 비활성화")
+                    db_resp = supabase.table("stocks").select("ticker").eq("is_active", True).execute()
+                    db_active = {row['ticker'] for row in db_resp.data}
+                    delisted = db_active - fdr_ticker_set
+
+                    if delisted:
+                        for ticker in delisted:
+                            supabase.table("stocks").update({"is_active": False}).eq("ticker", ticker).execute()
+                        logger.info(f"상장폐지 종목 {len(delisted)}개 비활성화: {sorted(delisted)}")
+                    else:
+                        logger.info("상장폐지 종목 없음")
                 except Exception as e:
                     logger.warning(f"상장폐지 종목 비활성화 실패: {e}")
             else:
