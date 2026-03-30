@@ -48,19 +48,21 @@ def get_logger(name: str) -> logging.Logger:
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
 
-    # 파일 핸들러 (DEBUG 이상, 일일 로테이션)
-    try:
-        os.makedirs(_LOG_DIR, exist_ok=True)
-        today = datetime.now().strftime("%Y%m%d")
-        file_handler = logging.FileHandler(
-            os.path.join(_LOG_DIR, f"trend_surfer_{today}.log"),
-            encoding="utf-8",
-        )
-        file_handler.setLevel(logging.DEBUG)
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-    except OSError:
-        # 파일 핸들러 생성 실패 시 콘솔만 사용
-        logger.warning("로그 파일 생성 실패. 콘솔 로깅만 사용합니다.")
+    # daily_routine의 서브프로세스로 실행 중이면 파일 핸들러 제외
+    # (daily_routine이 stdout을 캡처해 로그 파일에 직접 기록하므로 중복/순서 오류 방지)
+    if not os.environ.get('TREND_SURFER_SUBPROCESS'):
+        try:
+            os.makedirs(_LOG_DIR, exist_ok=True)
+            today = datetime.now().strftime("%Y%m%d")
+            file_handler = logging.FileHandler(
+                os.path.join(_LOG_DIR, f"trend_surfer_{today}.log"),
+                encoding="utf-8",
+            )
+            file_handler.setLevel(logging.DEBUG)
+            file_handler.setFormatter(formatter)
+            logger.addHandler(file_handler)
+        except OSError:
+            # 파일 핸들러 생성 실패 시 콘솔만 사용
+            logger.warning("로그 파일 생성 실패. 콘솔 로깅만 사용합니다.")
 
     return logger

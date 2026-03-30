@@ -53,9 +53,10 @@ trend-surfer-claude/
 │   ├── run_backtest.py         # [Backtest] 백테스트 실행
 │   ├── run_collector.py        # 데이터 수집 실행
 │   ├── run_daily_indicators.py # 지표 계산 실행
+│   ├── update_adjusted_prices.py # 수정주가 이벤트 감지 및 백필
 │   ├── backfill_candles.py     # 과거 캔들 데이터 백필
 │   ├── backfill_indicators.py  # 과거 지표 데이터 재계산
-│   └── update_warning_stocks.py # 경고종목 업데이트
+│   └── update_warning_stocks.py # 경고종목 업데이트 (키움 REST API)
 ├── frontend/                   # Next.js 프론트엔드
 ├── logs/                       # 일일 실행 로그
 ├── results/                    # 전략 신호 결과 (xlsx)
@@ -181,5 +182,8 @@ KIWOOM_IS_PAPER_TRADING=True
 1. **우선주/ETF/ETN 및 관리종목 제외**: 전략 스캔 시 `is_preferred`, `is_warning` 필터 적용
 2. **수정주가 기준**: 모든 분석은 수정주가(adjusted price) 기준으로 수행
 3. **스크립트 경로**: `scripts/`는 `backend/` 상위에 위치하므로 `uv run ../scripts/xxx.py` 형식 사용
-4. **로그**: `logs/` 디렉토리에 날짜별 저장 (`daily_routine_YYYYMMDD.log`)
+4. **로그**: `logs/` 디렉토리에 날짜별 저장 (`trend_surfer_YYYYMMDD.log`)
 5. **결과**: `results/` 디렉토리에 날짜별 xlsx 저장 (`signal_YYYYMMDD.xlsx`)
+6. **서브프로세스 로깅**: `daily_routine.py`가 스크립트를 subprocess로 실행할 때 `TREND_SURFER_SUBPROCESS=1` 환경변수를 설정함. `get_logger()`는 이 변수가 있으면 FileHandler를 추가하지 않고 stdout만 사용 — daily_routine이 로그 파일에 단독으로 기록해 순서를 보장함
+7. **수정주가 감지**: `update_adjusted_prices.py`는 KRX 공식 API로 당일 시세 조회를 시도하고, 실패(0건) 시 FDR(`collector.fetch_daily_ohlcv`)으로 폴백. 양쪽 모두 0건이면 휴장일로 판단
+8. **경고종목 업데이트**: KOSPI/KOSDAQ 중 하나라도 API 오류 시 DB 리셋을 하지 않음 (부분 데이터로 초기화 방지)

@@ -5,10 +5,10 @@ TrendSurfer의 백엔드 시스템입니다. 한국 주식 시장(KOSPI, KOSDAQ)
 ## 🛠 기술 스택
 
 - **Framework**: FastAPI
-- **Language**: Python 3.12+
+- **Language**: Python 3.13+
 - **Manager**: [uv](https://github.com/astral-sh/uv)
 - **Database**: Supabase (PostgreSQL)
-- **Data**: FinanceDataReader, KRX Open API
+- **Data**: FinanceDataReader, KRX Open API, 키움증권 REST API
 
 ---
 
@@ -166,17 +166,38 @@ uv run scripts/verify_indicators.py --start 2026-01-01
 ```
 backend/
 ├── app/
-│   ├── api/                   # API Endpoints
+│   ├── api/v1/                # API 엔드포인트
 │   ├── backtest/              # 백테스트 엔진 및 전략 클래스
 │   │   ├── strategies/        # 개별 전략 구현체 (trend, sma 등)
 │   │   └── engine.py          # 백테스트 코어 로직
 │   ├── services/              # 비즈니스 로직 (수집, 계산 등)
-│   │   ├── collector.py       # 데이터 수집기
-│   │   └── indicator_calculator.py # 지표 계산기
-│   └── db/                    # DB 연결 및 모델
-├── scripts/                   # 실행 가능한 유틸리티 스크립트 모음
-│   ├── daily_routine.py       # [Daily] 일일 배치 메인
-│   ├── run_strategy.py        # [Daily] 시그널 스캔
-│   └── run_backtest.py        # [Backtest] 백테스트 실행
+│   │   ├── collector.py       # FDR 기반 시세 수집기
+│   │   ├── krx_collector.py   # KRX 공식 API 수집기
+│   │   ├── hybrid_collector.py # FDR + KRX 하이브리드 백필
+│   │   ├── indicator_calculator.py # 기술적 지표 계산기
+│   │   └── strategy_scanner.py # 전략 신호 스캐너
+│   ├── core/
+│   │   └── logger.py          # 공통 로거 (TREND_SURFER_SUBPROCESS 지원)
+│   └── db/                    # DB 연결
+├── scripts/                   # 실행 스크립트 (backend/ 상위에 위치)
+│   ├── daily_routine.py       # [Daily] 일일 배치 메인 (자동화 진입점)
+│   ├── run_collector.py       # 시세/종목 수집
+│   ├── update_adjusted_prices.py # 수정주가 이벤트 감지 및 백필
+│   ├── run_daily_indicators.py # 지표 계산
+│   ├── update_warning_stocks.py # 경고종목 업데이트 (키움 REST API)
+│   ├── run_strategy.py        # [Daily] 전략 신호 스캔
+│   ├── run_backtest.py        # [Backtest] 백테스트 실행
+│   ├── backfill_candles.py    # 과거 캔들 백필
+│   └── backfill_indicators.py # 과거 지표 재계산
 └── .env                       # 환경 변수 (비공개)
 ```
+
+> **참고**: `scripts/`는 프로젝트 루트(`trend-surfer-claude/scripts/`)에 위치합니다. `backend/` 디렉토리에서 `uv run ../scripts/xxx.py`로 실행합니다.
+
+---
+
+## 📋 로깅 아키텍처
+
+- 통합 로그 파일: `logs/trend_surfer_YYYYMMDD.log`
+- `daily_routine.py`가 각 스크립트를 subprocess로 실행할 때 `TREND_SURFER_SUBPROCESS=1` 환경변수를 설정
+- subprocess는 stdout에만 로그를 출력하고, daily_routine이 이를 순서대로 로그 파일에 기록 (파일 동시 쓰기 방지)

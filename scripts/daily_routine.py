@@ -1,6 +1,7 @@
 import subprocess
 import sys
 import os
+import logging
 import argparse
 from datetime import datetime
 
@@ -15,6 +16,14 @@ logger = get_logger("daily_routine")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PYTHON_EXE = sys.executable
 
+def _get_log_file_path() -> str | None:
+    """현재 logger의 FileHandler 경로를 반환"""
+    for handler in logger.handlers:
+        if isinstance(handler, logging.FileHandler):
+            return handler.baseFilename
+    return None
+
+
 def run_script(script_name, args=[]):
     script_path = os.path.join(BASE_DIR, script_name)
     cmd = [PYTHON_EXE, script_path] + args
@@ -23,6 +32,10 @@ def run_script(script_name, args=[]):
     logger.info(f"단계 시작: {script_name} {' '.join(args)}")
     logger.info(f"{'='*60}")
 
+    # 서브프로세스에서 FileHandler를 쓰지 않도록 환경변수 설정
+    # (daily_routine이 stdout을 직접 로그 파일에 기록해 순서 보장)
+    env = {**os.environ, 'TREND_SURFER_SUBPROCESS': '1'}
+
     try:
         process = subprocess.Popen(
             cmd,
@@ -30,12 +43,19 @@ def run_script(script_name, args=[]):
             stderr=subprocess.STDOUT,
             text=True,
             encoding='utf-8',
-            errors='replace'
+            errors='replace',
+            env=env,
         )
 
-        for line in process.stdout:
-            # 서브프로세스 출력은 콘솔에 그대로 전달
-            print(line, end='')
+        log_path = _get_log_file_path()
+        if log_path:
+            with open(log_path, 'a', encoding='utf-8') as log_file:
+                for line in process.stdout:
+                    print(line, end='')          # 콘솔 출력
+                    log_file.write(line)         # 로그 파일 직접 기록 (순서 보장)
+        else:
+            for line in process.stdout:
+                print(line, end='')
 
         process.wait()
 

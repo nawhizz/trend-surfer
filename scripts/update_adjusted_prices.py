@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'backend')))
 
 from app.services.krx_collector import krx_collector
+from app.services.collector import collector
 from app.services.hybrid_collector import hybrid_collector
 from app.services.indicator_calculator import indicator_calculator
 from app.db.client import supabase
@@ -172,14 +173,18 @@ def detect_and_update(target_date_str=None, threshold=0.20, backfill_start_date=
         target_date_str = datetime.now().strftime("%Y-%m-%d")
     api_date, iso_date = normalize_date(target_date_str)
 
-    # 2. KRX API로 당일 시세 조회
+    # 2. KRX API로 당일 시세 조회, 실패 시 FDR 폴백
     logger.info(f"KRX 당일 시세 조회: {api_date}")
     today_candles = krx_collector.fetch_market_ohlcv_by_date(api_date)
     if not today_candles:
-        logger.info("당일 시세 데이터 없음 (휴장일 가능). 종료.")
-        return
-
-    logger.info(f"KRX 시세 {len(today_candles)}건 조회 완료")
+        logger.warning(f"KRX API 데이터 없음, FDR 폴백 시도: {iso_date}")
+        today_candles = collector.fetch_daily_ohlcv(iso_date)
+        if not today_candles:
+            logger.info("당일 시세 데이터 없음 (휴장일 가능). 종료.")
+            return
+        logger.info(f"FDR 폴백 성공: {len(today_candles)}건")
+    else:
+        logger.info(f"KRX 시세 {len(today_candles)}건 조회 완료")
 
     # 3. DB 종목 마스터 조회 (ticker + name)
     try:

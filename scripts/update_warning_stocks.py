@@ -20,7 +20,6 @@ warning_type 매핑:
 
 import sys
 import os
-from datetime import datetime
 import requests
 import time
 
@@ -28,7 +27,10 @@ import time
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'backend')))
 
 from app.db.client import supabase
+from app.core.logger import get_logger
 from dotenv import load_dotenv
+
+logger = get_logger("update_warning_stocks")
 
 # .env 파일 로드
 env_path = os.path.join(os.path.dirname(__file__), '..', 'backend', '.env')
@@ -80,21 +82,20 @@ def get_access_token() -> str | None:
         data = resp.json()
         token = data.get("token")
         if token:
-            print(f"Access token obtained successfully.")
+            logger.info("액세스 토큰 발급 완료")
             return token
         else:
-            print(f"Token not found in response: {data}")
+            logger.error(f"토큰 없음: {data}")
             return None
     except requests.HTTPError as e:
-        print(f"HTTP Error getting token: {e}")
-        print(f"Response: {resp.text}")
+        logger.error(f"토큰 발급 HTTP 오류: {e} / {resp.text}")
         return None
     except Exception as e:
-        print(f"Error getting access token: {e}")
+        logger.error(f"토큰 발급 오류: {e}")
         return None
 
 
-def fetch_stock_list(access_token: str, market_type: str) -> list[dict]:
+def fetch_stock_list(access_token: str, market_type: str) -> list[dict] | None:
     """
     특정 시장의 전체 종목 목록과 경고 정보를 조회합니다.
     
@@ -149,11 +150,11 @@ def fetch_stock_list(access_token: str, market_type: str) -> list[dict]:
             time.sleep(0.5)  # API 호출 제한 방지
             
         except requests.HTTPError as e:
-            print(f"HTTP Error fetching stocks for market {market_type}: {e}")
-            break
+            logger.error(f"시장 {market_type} 종목 조회 HTTP 오류: {e}")
+            return None
         except Exception as e:
-            print(f"Error fetching stocks for market {market_type}: {e}")
-            break
+            logger.error(f"시장 {market_type} 종목 조회 오류: {e}")
+            return None
     
     return all_stocks
 
@@ -189,58 +190,60 @@ def update_warning_stocks():
     """
     키움증권 API를 사용하여 경고 종목 정보를 업데이트합니다.
     """
-    print(f"[{datetime.now()}] Starting warning stocks update via Kiwoom API...")
-    
+    logger.info("경고종목 업데이트 시작 (키움 REST API)")
+
     # 1. 접근 토큰 발급
-    print("Getting access token...")
     access_token = get_access_token()
     if not access_token:
-        print("Failed to get access token. Exiting.")
+        logger.error("액세스 토큰 발급 실패. 종료.")
         return
-    
-    # 2. KOSPI/KOSDAQ 종목 목록 조회
+
+    # 2. KOSPI/KOSDAQ 종목 목록 조회 — 하나라도 실패 시 DB 리셋하지 않음
     warning_stocks = {}  # {ticker: warning_type}
-    
+    fetch_failed = False
+
     for market_type, market_name in [("0", "KOSPI"), ("10", "KOSDAQ")]:
-        print(f"Fetching {market_name} stocks...")
+        logger.info(f"{market_name} 종목 조회 중...")
         stocks = fetch_stock_list(access_token, market_type)
-        print(f"  Found {len(stocks)} stocks in {market_name}")
-        
+        if stocks is None:
+            logger.error(f"{market_name} 조회 실패 — DB 업데이트를 중단합니다.")
+            fetch_failed = True
+            break
+        logger.info(f"{market_name} {len(stocks)}건 조회 완료")
+
         for stock in stocks:
             code = stock.get("code", "")
             warning_type = determine_warning_type(stock)
-            
             if code and warning_type:
                 warning_stocks[code] = warning_type
-    
-    print(f"Found {len(warning_stocks)} stocks with warnings")
-    
-    # 3. DB 업데이트 - 먼저 모든 종목 초기화
-    print("Resetting all warning_type to NULL...")
+
+        time.sleep(1)  # 시장 간 API 호출 간격
+
+    if fetch_failed:
+        return
+
+    logger.info(f"경고 종목 {len(warning_stocks)}건 감지")
+
+    # 3. DB 업데이트 — 양쪽 시장 조회 성공 시에만 리셋
     try:
         supabase.table("stocks").update({"warning_type": None}).neq("ticker", "").execute()
-        print("Reset complete.")
     except Exception as e:
-        print(f"Error resetting warning_type: {e}")
+        logger.error(f"warning_type 초기화 오류: {e}")
         return
-    
+
     # 4. 경고 종목 업데이트
-    if warning_stocks:
-        print("Updating warning stocks in DB...")
-        warning_counts = {}
-        
-        for ticker, warning_type in warning_stocks.items():
-            try:
-                supabase.table("stocks").update({"warning_type": warning_type}).eq("ticker", ticker).execute()
-                warning_counts[warning_type] = warning_counts.get(warning_type, 0) + 1
-            except Exception as e:
-                print(f"Error updating {ticker}: {e}")
-        
-        print("\nWarning counts by type:")
-        for wtype, count in sorted(warning_counts.items()):
-            print(f"  {wtype}: {count}")
-    
-    print(f"\n[{datetime.now()}] Warning stocks update complete.")
+    warning_counts = {}
+    for ticker, warning_type in warning_stocks.items():
+        try:
+            supabase.table("stocks").update({"warning_type": warning_type}).eq("ticker", ticker).execute()
+            warning_counts[warning_type] = warning_counts.get(warning_type, 0) + 1
+        except Exception as e:
+            logger.error(f"{ticker} 업데이트 오류: {e}")
+
+    for wtype, count in sorted(warning_counts.items()):
+        logger.info(f"  {wtype}: {count}건")
+
+    logger.info("경고종목 업데이트 완료")
 
 
 def main():
