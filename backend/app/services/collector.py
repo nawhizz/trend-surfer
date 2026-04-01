@@ -198,6 +198,8 @@ class StockCollector:
         except Exception as e:
             logger.error(f"일봉 데이터 수집 실패: {e}", exc_info=True)
 
+        return all_candles  # FDR 폴백 호출자(update_adjusted_prices)가 활용
+
     def fetch_historical_candles(self, start_date: str, end_date: str, ticker: str = None):
         """
         [FDR] 특정 기간의 일봉 데이터를 수집합니다. (FDR DataReader 사용)

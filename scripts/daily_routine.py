@@ -52,7 +52,8 @@ def run_script(script_name, args=[]):
             with open(log_path, 'a', encoding='utf-8') as log_file:
                 for line in process.stdout:
                     print(line, end='')          # 콘솔 출력
-                    log_file.write(line)         # 로그 파일 직접 기록 (순서 보장)
+                    log_file.write(line)         # 로그 파일 직접 기록
+                    log_file.flush()             # 즉시 OS에 반영 (순서 보장)
         else:
             for line in process.stdout:
                 print(line, end='')
