@@ -185,5 +185,6 @@ KIWOOM_IS_PAPER_TRADING=True
 4. **로그**: `logs/` 디렉토리에 날짜별 저장 (`trend_surfer_YYYYMMDD.log`)
 5. **결과**: `results/` 디렉토리에 날짜별 xlsx 저장 (`signal_YYYYMMDD.xlsx`)
 6. **서브프로세스 로깅**: `daily_routine.py`가 스크립트를 subprocess로 실행할 때 `TREND_SURFER_SUBPROCESS=1` 환경변수를 설정함. `get_logger()`는 이 변수가 있으면 FileHandler를 추가하지 않고 stdout만 사용 — daily_routine이 로그 파일에 단독으로 기록해 순서를 보장함
-7. **수정주가 감지**: `update_adjusted_prices.py`는 KRX 공식 API로 당일 시세 조회를 시도하고, 실패(0건) 시 FDR(`collector.fetch_daily_ohlcv`)으로 폴백. 양쪽 모두 0건이면 휴장일로 판단
+7. **당일 시세 수집 (KRX 공식 API)**: `collector.fetch_daily_ohlcv()`와 `update_adjusted_prices.py`는 KRX 공식 인증 API(`krx_collector`, `KRX_API_KEY`)로 당일 전종목 시세를 조회한다. 0건이면 휴장일 또는 데이터 미공시로 판단하고 종료한다. (과거 FDR 폴백은 외부 GitHub 캐시 지연으로 당일 데이터에서 HTTP 404가 빈번해 제거함. pykrx는 **전종목 일괄 조회**(`get_market_ohlcv(date, market='ALL')`, `get_market_ticker_list`)가 KRX 차단으로 빈 응답을 반환해 사용 불가 — 2026-06 실측 시 `400 LOGOUT`이 아니라 빈 DataFrame→`KeyError: 시가/고가/저가/종가 컬럼 없음`, 종목리스트 0건으로 나타남. 단, **단일 종목 조회**(`get_market_ohlcv_by_date(start, end, ticker)`)는 정상 동작하나 원주가(비수정)이고 종목별 개별 호출이라 전종목 수집엔 부적합. 따라서 당일 전종목 시세는 KRX 공식 인증 API를 유지함.) KRX API는 ETF/ETN/스팩 등 `stocks` 마스터에 없는 종목도 반환하므로, `daily_candles` 저장 전 DB 등록 종목으로 필터링해 FK 제약 위반을 방지한다.
+   - **단계 1(종목 마스터 `update_stock_list`)은 아직 FDR(`fdr.StockListing('KRX')`)을 사용**하며 동일한 404 영향을 받지만, 예외를 삼켜 exit 0이라 루틴은 중단되지 않는다(마스터 미갱신 상태로 진행). 필요 시 KRX 전환 검토.
 8. **경고종목 업데이트**: KOSPI/KOSDAQ 중 하나라도 API 오류 시 DB 리셋을 하지 않음 (부분 데이터로 초기화 방지)

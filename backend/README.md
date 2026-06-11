@@ -8,7 +8,13 @@ TrendSurfer의 백엔드 시스템입니다. 한국 주식 시장(KOSPI, KOSDAQ)
 - **Language**: Python 3.13+
 - **Manager**: [uv](https://github.com/astral-sh/uv)
 - **Database**: Supabase (PostgreSQL)
-- **Data**: FinanceDataReader, KRX Open API, 키움증권 REST API
+- **Data**: KRX 공식 인증 API(당일 시세), FinanceDataReader(종목 마스터·수정주가 백필), 키움증권 REST API(경고종목)
+
+> **데이터 소스 정책**
+> - **종목 마스터**(`stocks`): FDR `fdr.StockListing('KRX' / 'KRX-DESC')`
+> - **당일 시세**(`daily_candles`): **KRX 공식 인증 API**(`data-dbg.krx.co.kr`, `KRX_API_KEY`). 과거 FDR을 썼으나 외부 GitHub 캐시 지연으로 당일 데이터 HTTP 404가 빈번해 전환함.
+> - **과거/수정주가 백필**: 하이브리드 — FDR(수정주가 OHLCV) + KRX 공식 API(거래대금·시가총액).
+> - `pykrx`는 KRX 웹 차단(`400 LOGOUT`)으로 **사용하지 않음**.
 
 ---
 
@@ -59,19 +65,23 @@ uv run ../scripts/daily_routine.py
 ```
 
 **윈도우 작업 스케줄러 등록**:
-`scripts/run_daily_routine.bat` 파일을 등록하여 매일 16:30에 실행되도록 설정할 수 있습니다.
+`scripts/run_daily_routine.bat` 파일을 등록하여 매일 자동 실행되도록 설정할 수 있습니다.
+
+> ⚠️ **실행 시각 주의 (중요)**: KRX 공식 API의 전종목 일별 시세는 장 마감(15:30) 후 정산을 거쳐 공시되므로, **16:30 실행 시 아직 데이터가 올라오지 않아 0건이 반환될 수 있습니다.** 이 경우 코드는 "휴장일 또는 데이터 미공시"로 간주하고 저장 없이 종료하여 `daily_candles`에 데이터가 적재되지 않습니다. **트리거 시각을 18:00 이후로 설정하는 것을 권장합니다.** 누락이 발생하면 익일 [과거 데이터 백필](#과거-데이터-백필-backfill)로 복구할 수 있습니다.
 
 ### 2. 상세 프로세스 (Internal Steps)
 `daily_routine.py`는 내부적으로 다음 스텝을 수행합니다. 필요 시 개별 스크립트를 수동으로 실행할 수 있습니다.
 
 | 단계 | 스크립트 | 설명 |
 |------|----------|------|
-| **1. 종목 갱신** | `run_collector.py --mode tickers` | 신규 상장/상장 폐지 종목 마스터 업데이트 |
-| **2. 수정주가** | `update_adjusted_prices.py` | 액면분할 등 이벤트 감지 및 과거 데이터 자동 백필 |
-| **3. 시세 수집** | `run_collector.py --mode daily` | 당일 OHLCV 및 거래대금(KRX) 수집 |
+| **1. 종목 갱신** | `run_collector.py --mode tickers` | 신규 상장/상장 폐지 종목 마스터 업데이트 (FDR). 우선주·신주인수권증서 등 비표준 종목은 `is_preferred`로 자동 분류 |
+| **2. 수정주가** | `update_adjusted_prices.py` | 액면분할·무상증자 등 이벤트 감지 및 과거 데이터 자동 백필 (KRX 등락률 역산 vs DB 종가 비교) |
+| **3. 시세 수집** | `run_collector.py --mode daily` | 당일 전종목 OHLCV·거래대금·시가총액 수집 (**KRX 공식 API**). `stocks` 미등록 종목은 FK 위반 방지를 위해 필터링 |
 | **4. 지표 계산** | `run_daily_indicators.py` | 당일 캔들 기준 기술적 지표(MA, EMA_STAGE, ATR 등) 계산 |
-| **5. 경고종목** | `update_warning_stocks.py` | 관리종목, 투자경고, 거래정지 등 경고 상태 업데이트 (키움 API) |
-| **6. 전략 실행** | `run_strategy.py` | 포착된 종목(시그널) 스캔 및 리스트 출력 |
+| **5. 경고종목** | `update_warning_stocks.py` | 관리종목, 투자경고, 거래정지 등 경고 상태 업데이트 (키움 API). KOSPI/KOSDAQ 중 하나라도 오류 시 DB를 리셋하지 않아 부분 데이터 초기화 방지 |
+| **6. 전략 실행** | `run_strategy.py` | 20일 신고가 추세추종 시그널 스캔 → 엑셀 저장 → **텔레그램 발송**. 우선주/ETF/ETN/경고종목 제외 |
+
+> **단계별 실패 정책**: 단계 1·3·4·6은 실패 시 루틴이 중단되지만(`exit 1`), 단계 2(수정주가)는 데이터 미공시 시 정상 종료하고, 단계 5(경고종목)는 실패해도 경고하고 계속 진행합니다. 특정 날짜를 지정하려면 `--date YYYY-MM-DD`를 사용합니다.
 
 ---
 
@@ -149,6 +159,28 @@ uv run scripts/backfill_indicators.py --start 2024-01-01 --end 2024-12-31
 uv run scripts/backfill_index.py --start 2024-01-01
 ```
 
+### 누락 데이터 복구 (Missed Daily Data)
+조기 실행 등으로 특정 거래일의 당일 시세가 누락된 경우, 익일 이후 다음 순서로 복구합니다. (KRX 공식 API에는 익일이면 데이터가 안정적으로 공시되어 있습니다.)
+
+```bash
+cd backend
+
+# 1. 종목 마스터 갱신 (신규 상장 종목 FK 누락 방지)
+uv run ../scripts/run_collector.py --mode tickers
+
+# 2. 누락된 날짜를 각각 당일 시세 수집 (KRX 공식 API)
+uv run ../scripts/run_collector.py --mode daily --date 2026-06-08
+uv run ../scripts/run_collector.py --mode daily --date 2026-06-09
+
+# 3. 해당 기간 지표 재계산
+uv run ../scripts/backfill_indicators.py --start 2026-06-08 --end 2026-06-09
+
+# 4. (선택) 해당 날짜 전략 신호 재스캔 및 텔레그램 발송
+uv run ../scripts/run_strategy.py --date 2026-06-08
+```
+
+> 백필 검증: `daily_candles`와 `daily_technical_indicators`의 날짜별 건수가 정상 거래일과 동일한 수준(종목 수)인지 확인합니다.
+
 ### 데이터 검증 (Verify)
 
 ```bash
@@ -171,9 +203,9 @@ backend/
 │   │   ├── strategies/        # 개별 전략 구현체 (trend, sma 등)
 │   │   └── engine.py          # 백테스트 코어 로직
 │   ├── services/              # 비즈니스 로직 (수집, 계산 등)
-│   │   ├── collector.py       # FDR 기반 시세 수집기
-│   │   ├── krx_collector.py   # KRX 공식 API 수집기
-│   │   ├── hybrid_collector.py # FDR + KRX 하이브리드 백필
+│   │   ├── collector.py       # 당일 시세 수집(KRX 공식 API) 및 종목 마스터(FDR) 관리
+│   │   ├── krx_collector.py   # KRX 공식 인증 API 수집기 (requests)
+│   │   ├── hybrid_collector.py # FDR(수정주가) + KRX(거래대금/시총) 하이브리드 백필
 │   │   ├── indicator_calculator.py # 기술적 지표 계산기
 │   │   └── strategy_scanner.py # 전략 신호 스캐너
 │   ├── core/
