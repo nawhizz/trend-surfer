@@ -7,6 +7,7 @@
 # Claude Code (로컬 설정 - 팀원 공유 불필요)
 .claude/settings.local.json
 .claude/plans/
+.claude/scheduled_tasks.lock
 
 # Antigravity (구 에이전트 플랫폼 - Claude Code로 마이그레이션 완료)
 # .agent/ 디렉토리는 레거시 참조용으로 보존
