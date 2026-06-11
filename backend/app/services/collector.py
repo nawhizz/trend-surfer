@@ -4,6 +4,7 @@ import FinanceDataReader as fdr
 from app.db.client import supabase
 from app.core.logger import get_logger
 from app.core.constants import BATCH_WRITE_UPSERT
+from app.services.krx_collector import krx_collector
 
 logger = get_logger(__name__)
 
@@ -114,91 +115,71 @@ class StockCollector:
 
     def fetch_daily_ohlcv(self, date_str: str = None):
         """
-        [FDR] 전 종목의 일봉 데이터를 수집합니다.
-        FDR의 StockListing('KRX')는 '현재(오늘)' 기준 전 종목 시세를 제공합니다.
-        과거 데이터 Bulk 수집은 FDR로 어려우므로, 이 함수는 '오늘/최근' 데이터 수집용으로 사용합니다.
-        특정 과거 날짜 수집이 필요하면 loop를 돌거나 다른 방법을 써야 하지만, 
-        자동매매 시스템은 주로 '오늘' 데이터를 마감 후 수집하는게 핵심입니다.
+        [KRX 공식 API] 전 종목의 일봉 데이터를 수집해 DB에 저장합니다.
+
+        과거에는 FDR(`fdr.StockListing('KRX')`)을 사용했으나, FDR이 의존하는 외부
+        GitHub 캐시 저장소의 갱신 지연으로 당일 데이터에서 HTTP 404가 빈번하게 발생했습니다.
+        프로젝트에 이미 존재하는 KRX 공식 인증 API(`krx_collector`)가 장중에도 안정적이므로
+        이를 사용하도록 전환했습니다.
+
+        Args:
+            date_str (str, optional): 대상일 (YYYY-MM-DD). None이면 오늘.
+
+        Returns:
+            list[dict]: 수집한 캔들 리스트 (호출자가 활용 가능). 데이터 없으면 빈 리스트.
         """
         target_date = date_str
         if not target_date:
             target_date = datetime.now().strftime("%Y-%m-%d")
-        
-        # Note: fdr.StockListing acts on 'latest' available data. 
-        # We assume the user calls this after market close to get 'today's' data.
-        # If date_str is provided and is NOT today, FDR StockListing cannot fetch it easily in bulk.
-        # ideally we should check if date_str matches today, otherwise warn.
-        
-        logger.info(f"일봉 데이터 수집 시작 (FDR) - {target_date}")
 
+        logger.info(f"일봉 데이터 수집 시작 (KRX) - {target_date}")
+
+        # KRX API는 YYYYMMDD 형식을 사용
+        api_date = target_date.replace("-", "")
+
+        all_candles = krx_collector.fetch_market_ohlcv_by_date(api_date)
+
+        if not all_candles:
+            logger.warning(f"{target_date} KRX 일봉 데이터 없음 (휴장일 또는 데이터 미공시)")
+            return []
+
+        # KRX API는 ETF/ETN/스팩 등 stocks 마스터에 없는 종목도 반환하므로,
+        # FK 제약(daily_candles_ticker_fkey) 위반을 막기 위해 DB 등록 종목으로 필터링
         try:
-            df = fdr.StockListing('KRX')
-            
-            all_candles = []
-            
-            for index, row in df.iterrows():
-                # Filter Market
-                market = row['Market']
-                if market not in ['KOSPI', 'KOSDAQ']:
-                    continue
-
-                # Data validation (handling NaNs or zeros)
-                # Align with KRXCollector: Skip only if BOTH Close and Volume are missing/zero.
-                close_val = row['Close']
-                vol_val = row['Volume']
-                
-                if (pd.isna(close_val) or close_val == 0) and (pd.isna(vol_val) or vol_val == 0):
-                    continue
-                
-                # If Open/High/Low are NaN but Close exists (e.g. suspended), fill with Close or 0?
-                # Usually FDR handles this, but let's be safe.
-                # If Volume is 0, Open/High/Low might be NaN or 0.
-                # We will cast to int safely below.
-
-                # FDR columns: Close, Open, High, Low, Volume, Change (Ratio?), Marcap...
-                # Note: fdr.StockListing('KRX') columns are: 
-                # Code, ISU_CD, Name, Market, Dept, Close, ChangeCode, Changes, ChagesRatio, Open, High, Low, Volume, Amount, Marcap, Stocks, MarketId
-                
-                # Safe extraction helper
-                def safe_int(val):
-                    if pd.isna(val): return 0
-                    return int(val)
-                
-                def safe_float(val):
-                    if pd.isna(val): return 0.0
-                    return float(val)
-
-                candle = {
-                    "ticker": str(row['Code']),
-                    "date": target_date, # FDR Listing doesn't return date column, assume request date
-                    "open": safe_int(row['Open']),
-                    "high": safe_int(row['High']),
-                    "low": safe_int(row['Low']),
-                    "close": safe_int(row['Close']),
-                    "volume": safe_int(row['Volume']),
-                    "amount": safe_float(row.get('Amount')),
-                    "change_rate": safe_float(row.get('ChagesRatio')),
-                    "market_cap": safe_int(row.get('Marcap')),
-                    "created_at": datetime.utcnow().isoformat()
-                }
-                all_candles.append(candle)
-            
-            # Batch Insert
-            if all_candles:
-                for i in range(0, len(all_candles), BATCH_WRITE_UPSERT):
-                    chunk = all_candles[i:i + BATCH_WRITE_UPSERT]
-                    supabase.table("daily_candles").upsert(chunk).execute()
-                    logger.debug(f"캔들 upsert {i} ~ {i+len(chunk)}")
-                logger.info(f"{target_date} 일봉 데이터 {len(all_candles)}건 저장 완료")
-            else:
-                logger.warning("저장할 캔들 데이터가 없습니다.")
-
-        except (KeyError, ValueError) as e:
-            logger.error(f"FDR 캔들 데이터 파싱 오류: {e}", exc_info=True)
+            db_tickers = set()
+            offset, limit = 0, 1000
+            while True:
+                resp = supabase.table("stocks").select("ticker").range(offset, offset + limit - 1).execute()
+                rows = resp.data
+                if not rows:
+                    break
+                db_tickers.update(item['ticker'] for item in rows)
+                offset += limit
+                if len(rows) < limit:
+                    break
         except Exception as e:
-            logger.error(f"일봉 데이터 수집 실패: {e}", exc_info=True)
+            logger.error(f"종목 마스터 조회 실패, 일봉 저장 중단: {e}", exc_info=True)
+            return all_candles
 
-        return all_candles  # FDR 폴백 호출자(update_adjusted_prices)가 활용
+        before = len(all_candles)
+        all_candles = [c for c in all_candles if c['ticker'] in db_tickers]
+        logger.info(f"DB 등록 종목 기준 {len(all_candles)}건 (전체 {before}건 중)")
+
+        if not all_candles:
+            logger.warning("DB 등록 종목과 일치하는 캔들이 없습니다.")
+            return []
+
+        # Batch Upsert (ticker/date 충돌 시 갱신)
+        try:
+            for i in range(0, len(all_candles), BATCH_WRITE_UPSERT):
+                chunk = all_candles[i:i + BATCH_WRITE_UPSERT]
+                supabase.table("daily_candles").upsert(chunk, on_conflict="ticker, date").execute()
+                logger.debug(f"캔들 upsert {i} ~ {i+len(chunk)}")
+            logger.info(f"{target_date} 일봉 데이터 {len(all_candles)}건 저장 완료")
+        except Exception as e:
+            logger.error(f"일봉 데이터 저장 실패: {e}", exc_info=True)
+
+        return all_candles
 
     def fetch_historical_candles(self, start_date: str, end_date: str, ticker: str = None):
         """
