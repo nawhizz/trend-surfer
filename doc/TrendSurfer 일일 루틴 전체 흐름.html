@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TrendSurfer 일일 루틴 전체 흐름</title>
+<style>
+  :root {
+    --bg: #0f1419;
+    --card: #1a2129;
+    --card-alt: #20272f;
+    --border: #2d3742;
+    --text: #d7dee6;
+    --muted: #8b97a3;
+    --accent: #4fc3f7;
+    --accent2: #81c784;
+    --warn-bg: #2a2418;
+    --warn-border: #c9a227;
+    --warn-text: #f0d77a;
+    --code-bg: #11161c;
+    --highlight: #ffb74d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", "Malgun Gothic", "맑은 고딕", Roboto, sans-serif;
+    line-height: 1.7;
+    font-size: 16px;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 48px 24px 80px; }
+  header {
+    border-bottom: 2px solid var(--border);
+    padding-bottom: 24px;
+    margin-bottom: 8px;
+  }
+  h1 {
+    font-size: 2rem;
+    margin: 0 0 12px;
+    color: #fff;
+    letter-spacing: -0.5px;
+  }
+  header p { color: var(--muted); margin: 0; font-size: 0.98rem; }
+
+  .step {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px 28px;
+    margin-top: 24px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  }
+  .step h2 {
+    margin: 0 0 16px;
+    font-size: 1.3rem;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 32px;
+    height: 32px;
+    padding: 0 10px;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #06222e;
+    font-weight: 700;
+    font-size: 0.95rem;
+    flex-shrink: 0;
+  }
+  .badge.entry { background: var(--accent2); color: #0c2410; }
+  .badge.core  { background: var(--highlight); color: #3a2400; }
+
+  .cmd {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin: 4px 0 16px;
+    font-family: "Cascadia Code", Consolas, "D2Coding", monospace;
+    font-size: 0.9rem;
+    color: #cfe8f5;
+    overflow-x: auto;
+    white-space: pre;
+  }
+  code {
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: "Cascadia Code", Consolas, "D2Coding", monospace;
+    font-size: 0.88em;
+    color: #f0c674;
+  }
+  ul { margin: 8px 0; padding-left: 22px; }
+  li { margin: 6px 0; }
+  ul ul { margin: 4px 0; }
+
+  .note {
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin: 16px 0 0;
+    color: var(--warn-text);
+    font-size: 0.92rem;
+  }
+  .note::before { content: "⚠️  "; }
+
+  .flow {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-top: 16px;
+    font-family: "Cascadia Code", Consolas, "D2Coding", monospace;
+    font-size: 0.85rem;
+    line-height: 1.6;
+    color: #b8d4e3;
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .summary {
+    background: linear-gradient(135deg, #1a2129, #20303a);
+    border: 1px solid var(--accent);
+    border-radius: 12px;
+    padding: 24px 28px;
+    margin-top: 24px;
+  }
+  .summary h2 { color: var(--accent); margin-top: 0; }
+  .key {
+    margin-top: 16px;
+    padding: 14px 18px;
+    background: rgba(79,195,247,0.08);
+    border-radius: 8px;
+    font-size: 0.95rem;
+  }
+  strong { color: #fff; }
+  em { color: var(--highlight); font-style: normal; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>TrendSurfer 일일 루틴 전체 흐름</h1>
+    <p>Windows 작업 스케줄러가 실행하는 <code>run_daily_routine.bat</code>에서 시작하여, 데이터 적재 → 종목 추출 → 텔레그램 전송까지의 모든 단계를 정리한 문서입니다.</p>
+  </header>
+
+  <div class="step">
+    <h2><span class="badge entry">0</span> 진입점 — <code>run_daily_routine.bat</code></h2>
+    <p>Windows 작업 스케줄러가 이 배치 파일을 실행합니다. (<code>scripts/run_daily_routine.bat</code>)</p>
+    <ul>
+      <li><code>backend/</code> 디렉토리로 이동 (<code>cd /d D:\...\backend</code>)</li>
+      <li>UTF-8 인코딩 강제 설정 (<code>chcp 65001</code>, <code>PYTHONIOENCODING=utf-8</code>) — 한글 로그 깨짐 방지</li>
+      <li>로그 파일 경로 지정: <code>logs/daily_routine_YYYYMMDD.log</code></li>
+      <li><code>uv run ..\scripts\daily_routine.py</code> 실행, <strong>모든 출력을 로그 파일로 리다이렉트</strong> (<code>&gt; %LOG_FILE% 2&gt;&amp;1</code>)</li>
+    </ul>
+    <div class="note"><strong>참고:</strong> <code>daily_routine.py</code>를 인자 없이 실행하므로, 기준일은 <em>"전일"</em>이 됩니다. (KRX 공식 API가 당일 시세를 익일 오전에 공시하므로, 스케줄러를 익일 08:30에 실행하는 것을 전제로 함)</div>
+  </div>
+
+  <div class="step">
+    <h2>🧭 메인 오케스트레이터 — <code>daily_routine.py</code></h2>
+    <p>각 단계를 <strong>subprocess</strong>로 순차 실행합니다 (<code>scripts/daily_routine.py</code> 의 <code>run_script</code>).</p>
+    <p>핵심 메커니즘:</p>
+    <ul>
+      <li>환경변수 <code>TREND_SURFER_SUBPROCESS=1</code>을 설정해, 하위 스크립트들은 <strong>파일 로그를 직접 쓰지 않고 stdout만</strong> 출력 → <code>daily_routine</code>이 stdout을 받아 <strong>로그 파일에 단독 기록</strong>하여 순서를 보장</li>
+      <li>단계가 <strong>실패(exit≠0)하면 루틴 중단</strong> (단, 5단계 경고종목은 실패해도 계속 진행)</li>
+    </ul>
+  </div>
+
+  <div class="step">
+    <h2><span class="badge">1</span> 종목 마스터 갱신</h2>
+    <div class="cmd">run_collector.py --mode tickers  →  collector.update_stock_list()</div>
+    <ul>
+      <li><strong>FinanceDataReader</strong>(<code>fdr.StockListing('KRX')</code>)로 전 종목 목록 조회 (KOSPI/KOSDAQ)</li>
+      <li><code>KRX-DESC</code>에서 섹터/산업 정보 보강</li>
+      <li>종목별로 가공:
+        <ul>
+          <li><strong>우선주/신주인수권 판정</strong> (<code>is_preferred</code>): 6자리 숫자가 아니거나 끝자리가 0이 아니면 <code>True</code></li>
+          <li><strong>활성 여부</strong> (<code>is_active</code>): 종가가 0/NaN이면 비활성</li>
+        </ul>
+      </li>
+      <li><code>stocks</code> 테이블에 <strong>배치 upsert</strong></li>
+      <li><strong>상장폐지 처리</strong>: DB 활성 종목 중 FDR 목록에 없는 종목을 <code>is_active=False</code>로 비활성화</li>
+    </ul>
+    <div class="note">FDR 기반이라 당일 데이터 404 영향을 받을 수 있으나, 예외를 삼켜 <strong>exit 0</strong>으로 루틴은 중단되지 않습니다.</div>
+  </div>
+
+  <div class="step">
+    <h2><span class="badge">2</span> 수정주가 이벤트 감지 및 백필</h2>
+    <div class="cmd">update_adjusted_prices.py --date {기준일} --start_date 2020-01-01</div>
+    <p>액면분할·무상증자 등으로 과거 데이터를 다시 받아야 하는 종목을 탐지합니다.</p>
+    <ul>
+      <li><strong>KRX 공식 API</strong>로 당일 전종목 시세 조회 (<code>krx_collector.fetch_market_ohlcv_by_date</code>)
+        <ul><li><strong>0건이면 휴장일/미공시로 판단하고 즉시 종료</strong></li></ul>
+      </li>
+      <li>DB 종목 마스터로 필터링</li>
+      <li>DB에서 <strong>전일 종가</strong> 조회 (최대 7일 전까지 탐색, 연휴 대응)</li>
+      <li><strong>이벤트 감지 로직</strong>: 등락률로 추정한 전일가(<code>today_close / (1+rate/100)</code>)와 DB 전일 종가를 비교 → 차이가 <strong>임계값(20%)</strong> 초과 시 수정주가 이벤트 후보로 판정</li>
+      <li>후보가 있으면 <strong>hybrid_collector</strong>로 FDR 수정주가 기반 과거 데이터 백필 + <strong>지표 재계산</strong></li>
+    </ul>
+  </div>
+
+  <div class="step">
+    <h2><span class="badge core">3</span> 당일 시세 수집 <span style="font-size:0.85rem;color:var(--highlight)">★ 핵심 적재</span></h2>
+    <div class="cmd">run_collector.py --mode daily --date {기준일}  →  collector.fetch_daily_ohlcv()</div>
+    <ul>
+      <li><strong>KRX 공식 인증 API</strong>로 전종목 OHLCV 조회 (<code>krx_collector</code>)
+        <ul><li><strong>0건이면 WARNING 후 빈 리스트 반환</strong></li></ul>
+      </li>
+      <li><strong>DB 등록 종목으로 필터링</strong> — KRX가 반환하는 ETF/ETN/스팩 등은 <code>stocks</code>에 없어서 FK 제약 위반 방지</li>
+      <li><code>daily_candles</code> 테이블에 <strong>배치 upsert</strong> (<code>on_conflict="ticker, date"</code> → 중복 시 갱신)</li>
+    </ul>
+    <div class="note">과거엔 FDR을 썼으나 GitHub 캐시 지연으로 당일 404가 빈번해 KRX 공식 API로 전환됨.</div>
+  </div>
+
+  <div class="step">
+    <h2><span class="badge">4</span> 기술적 지표 계산</h2>
+    <div class="cmd">run_daily_indicators.py --date {기준일}  →  calculate_and_save_for_all_tickers(start=end=기준일)</div>
+    <ul>
+      <li>활성 종목 전체(약 2,737개)에 대해 <strong>워커 8개로 병렬 계산</strong></li>
+      <li>계산 지표: MA(5/20/60/120/240), EMA(5/20/40/50/120/200/240), <strong>EMA_STAGE</strong>(대순환 1~6단계), ATR(20), HIGH(10/20)</li>
+      <li><code>daily_technical_indicators</code> 테이블에 저장</li>
+    </ul>
+    <div class="note">당일 캔들이 없으면 모든 종목이 "0건"으로 처리됨 (오류는 아니지만 실제 저장된 당일 지표 없음).</div>
+  </div>
+
+  <div class="step">
+    <h2><span class="badge">5</span> 경고종목 업데이트 <span style="font-size:0.85rem;color:var(--muted)">(실패 허용)</span></h2>
+    <div class="cmd">update_warning_stocks.py  →  키움증권 REST API (ka10099)</div>
+    <ul>
+      <li><strong>액세스 토큰 발급</strong> (<code>client_credentials</code>)
+        <ul><li><code>.env</code>의 <code>KIWOOM_IS_PAPER_TRADING</code> 값에 따라 호스트 결정 (<code>False</code>=실투자 <code>api.kiwoom.com</code>, <code>True</code>=모의 <code>mockapi.kiwoom.com</code>)</li></ul>
+      </li>
+      <li>KOSPI(<code>mrkt_tp=0</code>), KOSDAQ(<code>10</code>) 종목 목록 조회 (연속조회 페이징)</li>
+      <li><code>state</code>/<code>auditInfo</code> 키워드로 <strong>warning_type 판정</strong> (ADMIN/HALT/WARNING/CAUTION 등)</li>
+      <li><strong>양쪽 시장 모두 성공해야</strong> <code>warning_type</code> 전체 초기화 후 재설정 (부분 데이터 리셋 방지)</li>
+    </ul>
+    <div class="note">App Key/Secret 검증 실패 등으로 토큰 발급에 실패하면 이 단계는 스킵됩니다. 단, <strong>이 단계는 실패해도 루틴 중단 안 됨</strong>.</div>
+  </div>
+
+  <div class="step">
+    <h2><span class="badge">6</span> 전략 신호 스캔 + 텔레그램 발송</h2>
+    <div class="cmd">run_strategy.py --date {기준일}  →  strategy_scanner.scan()</div>
+    <ul>
+      <li><strong>당일 일봉 조회</strong> (<code>daily_candles</code>)</li>
+      <li><strong>유동성 필터</strong>: 거래대금 ≥ 50억, 종가 ≥ 1,000원</li>
+      <li><strong>종목 정보 조회 &amp; 제외</strong>: 우선주, 시장경보(warning_type), 키워드(ETF/스팩 등), 비표준 코드</li>
+      <li><strong>지표 조회</strong>: MA_20, HIGH_20, ATR_20, EMA_STAGE</li>
+      <li><strong>신호 분석</strong> (추세추종 조건):
+        <ul>
+          <li><code>종가 &gt; MA(20)</code> (추세 상승)</li>
+          <li><code>종가 &gt; HIGH(20)</code> (20일 신고가 돌파)</li>
+          <li><code>종가 &gt; 시가</code> (양봉)</li>
+          <li>만족 시 강도 = <code>(종가-시가)/시가 × 100</code></li>
+        </ul>
+      </li>
+      <li><strong>강도순 정렬</strong> 후:
+        <ul>
+          <li>콘솔/로그 출력</li>
+          <li><strong>엑셀 저장</strong>: <code>results/signal_YYYYMMDD.xlsx</code></li>
+          <li><strong>텔레그램 발송</strong> (<code>notifier.send_signal_report</code>): 상위 20개 종목, 신호 없으면 "조건 충족 종목 없음" 메시지</li>
+        </ul>
+      </li>
+    </ul>
+  </div>
+
+  <div class="summary">
+    <h2>전체 데이터 흐름 요약</h2>
+    <div class="flow">run_daily_routine.bat (작업 스케줄러)
+   └─ daily_routine.py (오케스트레이터, subprocess 순차 실행)
+        ├─ 1. 종목 마스터  : FDR → stocks 테이블
+        ├─ 2. 수정주가 감지 : KRX API ↔ DB 비교 → (이벤트시) 백필+지표재계산
+        ├─ 3. 당일 시세    : KRX 공식 API → daily_candles 테이블  ★핵심 적재
+        ├─ 4. 지표 계산    : daily_candles → daily_technical_indicators (병렬8)
+        ├─ 5. 경고종목     : 키움 API → stocks.warning_type  (실패 허용)
+        └─ 6. 전략 스캔    : candles+indicators → 필터/분석 → xlsx + 텔레그램 발송</div>
+    <div class="key"><strong>핵심 의존성:</strong> 3단계(시세 적재)가 실패하면 4·6단계가 모두 빈 데이터로 동작합니다. 따라서 KRX 데이터가 공시되는 <em>익일 오전</em> 실행이 올바른 선택입니다.</div>
+  </div>
+
+</div>
+</body>
+</html>
