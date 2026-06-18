@@ -82,7 +82,8 @@ def main():
     
     args = parser.parse_args()
     
-    target_date = args.date if args.date else datetime.now().strftime("%Y-%m-%d")
+    from datetime import timedelta
+    target_date = args.date if args.date else (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
     logger.info(f"일일 루틴 시작: {target_date}")
     
     # 1. 종목 마스터 갱신
