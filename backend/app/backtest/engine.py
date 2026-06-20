@@ -345,6 +345,16 @@ class BacktestEngine:
         self.portfolio.record_daily(date, prices)
         self.risk_manager.update_peak_equity(self.portfolio.equity)
 
+    @staticmethod
+    def _is_valid_entry_price(entry_price: float) -> bool:
+        """
+        진입가 유효성 검사
+
+        결손 캔들(open=0 등)이나 비정상 데이터(음수)로 entry_price<=0이면
+        손익률 계산에서 ZeroDivisionError가 발생하므로 진입을 막는다.
+        """
+        return entry_price > 0
+
     def _process_pending_entries(
         self,
         date: str,
@@ -375,7 +385,16 @@ class BacktestEngine:
             
             # 익일 시가로 진입
             entry_price = data.open
-            
+
+            # 진입가 가드: 결손 캔들(open=0 등)이면 진입 취소
+            # entry_price<=0이면 손익률 계산에서 ZeroDivisionError가 발생하므로
+            # 애초에 포지션을 생성하지 않는다.
+            if not self._is_valid_entry_price(entry_price):
+                if verbose:
+                    print(f"[{date}] 진입 취소 (유효하지 않은 시가 {entry_price}): {ticker}")
+                processed.append(pending)
+                continue
+
             # 손절가 계산
             stop_loss = self.strategy.calculate_stop_loss(
                 entry_price=entry_price,
