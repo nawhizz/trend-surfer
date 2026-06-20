@@ -157,10 +157,11 @@ class TrendFollowingStrategy(BaseStrategy):
             # 기울기가 급락하면 즉시 청산
             if data.ema50_slope and data.ema50_slope < self.EMA_SLOPE_EXIT_THRESHOLD:
                 return "EMA_STRUCTURE_EXIT"
-            
-            # TODO: 2일 연속 이탈 확인은 추후 구현
-            # 현재는 기울기 조건만 사용
-        
+
+            # 2일 연속 50EMA 이탈이면 청산 (기울기가 완만해도 구조 둔화로 판단)
+            if ema_below_days >= self.EMA_BELOW_DAYS_THRESHOLD:
+                return "EMA_STRUCTURE_EXIT"
+
         return None
 
     # ========================================
