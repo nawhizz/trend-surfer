@@ -471,6 +471,14 @@ class BacktestEngine:
                 if self.save_to_db and self.trade_repo:
                     self.trade_repo.update_highest_close(ticker, data.close)
 
+            # EMA 이탈 연속 일수 갱신 (청산 판정 직전에 수행해야 당일 이탈이 반영됨)
+            # ema50 결측이면 카운터 변경하지 않음(보수적)
+            if data.ema50:
+                if data.close < data.ema50:
+                    position.ema_below_days += 1
+                else:
+                    position.ema_below_days = 0
+
             # 청산 시그널 확인
             exit_reason = self.strategy.check_exit_signal(
                 ticker=ticker,
@@ -479,6 +487,7 @@ class BacktestEngine:
                 entry_date=position.entry_date,
                 highest_close=position.highest_close,
                 initial_stop=position.initial_stop,
+                ema_below_days=position.ema_below_days,
             )
 
             if exit_reason:
