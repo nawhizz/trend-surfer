@@ -77,10 +77,11 @@ class EmaBreakoutStrategy(BaseStrategy):
         entry_date: str,
         highest_close: float,
         initial_stop: float,
+        ema_below_days: int = 0,
     ) -> Optional[str]:
         """
         청산 시그널 확인
-        
+
         OR 조건으로 하나라도 만족하면 청산:
         1. 손절: 종가 < 초기 손절가
         2. 트레일링 스탑: 종가 < 최고종가 - ATR*3.0

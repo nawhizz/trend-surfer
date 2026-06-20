@@ -101,10 +101,11 @@ class BaseStrategy(ABC):
         entry_date: str,
         highest_close: float,
         initial_stop: float,
+        ema_below_days: int = 0,
     ) -> Optional[str]:
         """
         청산 시그널 확인
-        
+
         Args:
             ticker: 종목 코드
             data: 시장 데이터
@@ -112,6 +113,7 @@ class BaseStrategy(ABC):
             entry_date: 진입일 (YYYY-MM-DD)
             highest_close: 보유 중 최고 종가
             initial_stop: 초기 손절가
+            ema_below_days: 종가 < 50EMA 연속 일수 (보조 청산 판정용, 기본 0)
             
         Returns:
             청산 사유 문자열 (예: "STOP_LOSS", "TRAILING", "MA_EXIT", "TIME_EXIT")

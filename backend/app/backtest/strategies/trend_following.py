@@ -132,10 +132,11 @@ class TrendFollowingStrategy(BaseStrategy):
         entry_date: str,
         highest_close: float,
         initial_stop: float,
+        ema_below_days: int = 0,
     ) -> Optional[str]:
         """
         청산 시그널 확인
-        
+
         조건 (하나라도 만족):
         1. 초기 손절: 종가 ≤ 초기 손절가
         2. ATR 트레일링: 종가 < (보유 중 최고 종가 - 2.5 × ATR)

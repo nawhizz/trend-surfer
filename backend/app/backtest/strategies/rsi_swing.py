@@ -75,10 +75,11 @@ class RsiSwingStrategy(BaseStrategy):
         entry_date: str,
         highest_close: float,
         initial_stop: float,
+        ema_below_days: int = 0,
     ) -> Optional[str]:
         """
         청산 시그널 확인
-        
+
         우선순위:
         1. 손절 (안전장치)
         2. 시간 청산 (10일 경과)
