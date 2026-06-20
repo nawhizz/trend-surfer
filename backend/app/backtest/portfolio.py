@@ -23,6 +23,7 @@ class Position:
         highest_close: 보유 중 최고 종가 (트레일링 스탑용)
         atr_at_entry: 진입 시점 ATR 값
         risk_amount: 이 포지션의 리스크 금액 (원)
+        ema_below_days: 종가 < 50EMA 연속 일수 (보조 청산 판정용)
     """
     ticker: str
     entry_date: str
@@ -32,6 +33,7 @@ class Position:
     highest_close: float
     atr_at_entry: float
     risk_amount: float = 0.0
+    ema_below_days: int = 0
 
     @property
     def cost(self) -> float:
