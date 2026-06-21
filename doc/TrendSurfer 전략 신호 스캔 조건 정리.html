@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>전략 신호 스캔 조건 정리</title>
+<style>
+  :root {
+    --bg: #0f1419;
+    --card: #1a2129;
+    --card-alt: #20272f;
+    --border: #2d3742;
+    --text: #d7dee6;
+    --muted: #8b97a3;
+    --accent: #4fc3f7;
+    --accent2: #81c784;
+    --warn-bg: #2a2418;
+    --warn-border: #c9a227;
+    --warn-text: #f0d77a;
+    --code-bg: #11161c;
+    --highlight: #ffb74d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", "Malgun Gothic", "맑은 고딕", Roboto, sans-serif;
+    line-height: 1.7;
+    font-size: 16px;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 48px 24px 80px; }
+  header {
+    border-bottom: 2px solid var(--border);
+    padding-bottom: 24px;
+    margin-bottom: 8px;
+  }
+  h1 {
+    font-size: 2rem;
+    margin: 0 0 12px;
+    color: #fff;
+    letter-spacing: -0.5px;
+  }
+  header p { color: var(--muted); margin: 0; font-size: 0.98rem; }
+
+  .step {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px 28px;
+    margin-top: 24px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  }
+  .step h2 {
+    margin: 0 0 16px;
+    font-size: 1.3rem;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 32px;
+    height: 32px;
+    padding: 0 10px;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #06222e;
+    font-weight: 700;
+    font-size: 0.95rem;
+    flex-shrink: 0;
+  }
+  .badge.entry { background: var(--accent2); color: #0c2410; }
+  .badge.core  { background: var(--highlight); color: #3a2400; }
+
+  .cmd {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin: 4px 0 16px;
+    font-family: "Cascadia Code", Consolas, "D2Coding", monospace;
+    font-size: 0.9rem;
+    color: #cfe8f5;
+    overflow-x: auto;
+    white-space: pre;
+  }
+  code {
+    background: var(--code-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: "Cascadia Code", Consolas, "D2Coding", monospace;
+    font-size: 0.88em;
+    color: #f0c674;
+  }
+  ul { margin: 8px 0; padding-left: 22px; }
+  li { margin: 6px 0; }
+  ul ul { margin: 4px 0; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0 4px;
+    font-size: 0.92rem;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 9px 12px;
+    text-align: left;
+  }
+  th {
+    background: var(--card-alt);
+    color: #fff;
+    font-weight: 600;
+  }
+  td code { font-size: 0.85em; }
+  .center { text-align: center; }
+
+  .note {
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin: 16px 0 0;
+    color: var(--warn-text);
+    font-size: 0.92rem;
+  }
+  .note::before { content: "⚠️  "; }
+
+  .flow {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-top: 16px;
+    font-family: "Cascadia Code", Consolas, "D2Coding", monospace;
+    font-size: 0.85rem;
+    line-height: 1.6;
+    color: #b8d4e3;
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .summary {
+    background: linear-gradient(135deg, #1a2129, #20303a);
+    border: 1px solid var(--accent);
+    border-radius: 12px;
+    padding: 24px 28px;
+    margin-top: 24px;
+  }
+  .summary h2 { color: var(--accent); margin-top: 0; }
+  .check { list-style: none; padding-left: 4px; }
+  .check li { margin: 10px 0; }
+  .check li::before { content: "✅  "; }
+  strong { color: #fff; }
+  em { color: var(--highlight); font-style: normal; font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>전략 신호 스캔 조건 정리</h1>
+    <p>일일 루틴의 마지막 단계인 <strong>전략 신호 스캔</strong>(<code>scripts/run_strategy.py</code> → <code>app/services/strategy_scanner.py</code>의 <code>StrategyScanner.scan()</code>)에서 사용하는 모든 조건을 단계별로 정리한 문서입니다.</p>
+  </header>
+
+  <div class="note" style="margin-top:24px">
+    <strong>중요:</strong> 일일 스캔의 진입 조건은 백테스트의 <code>TrendFollowingStrategy</code>와 다릅니다. 백테스트는 <em>50EMA 기울기</em>·<em>ATR 과열 필터</em>·<em>지수 구조 필터</em>까지 사용하지만, 실제 일일 스캐너(<code>strategy_scanner.py</code>)는 더 단순한 3개 조건만 사용합니다. 아래 내용은 <strong>실제 일일 스캔 기준</strong>입니다. (백테스트와의 차이는 마지막 절 참고)
+  </div>
+
+  <div class="summary">
+    <h2>전체 흐름 (실행 순서)</h2>
+    <div class="flow">1. 일봉 데이터 조회 (daily_candles)
+        ↓
+2. 유동성 필터 (거래대금 / 가격)
+        ↓
+3. 위험·부적격 종목 제외 (stocks 마스터)
+        ↓
+4. 기술적 지표 조회 (daily_technical_indicators)
+        ↓
+5. 신호 분석 (핵심 진입 3조건)
+        ↓
+6. 강도(strength) 계산 및 정렬
+        ↓
+   결과 출력 (콘솔 / 엑셀 / 텔레그램)</div>
+  </div>
+
+  <div class="step">
+    <h2><span class="badge">1</span> 일봉 데이터 조회</h2>
+    <ul>
+      <li><code>daily_candles</code> 테이블에서 대상 날짜(<code>target_date</code>, 기본값 = 전일)의 전종목 OHLCV를 조회</li>
+      <li>페이지네이션 단위: <code>BATCH_READ_PAGE = 1000</code>건</li>
+      <li>데이터가 <strong>0건이면 즉시 빈 결과 반환</strong> (휴장일 또는 데이터 미공시)</li>
+    </ul>
+  </div>
+
+  <div class="step">
+    <h2><span class="badge">2</span> 유동성 필터 <code>_apply_liquidity_filter</code></h2>
+    <p>아래 두 조건을 <strong>모두</strong> 만족해야 통과합니다.</p>
+    <table>
+      <thead><tr><th>조건</th><th>기본값</th><th>상수</th><th>설명</th></tr></thead>
+      <tbody>
+        <tr><td><strong>거래대금 ≥ min_amount</strong></td><td>50억 원 (<code>5,000,000,000</code>)</td><td><code>DEFAULT_MIN_AMOUNT</code></td><td><code>amount</code>가 없으면 <code>종가 × 거래량</code>으로 대체 계산</td></tr>
+        <tr><td><strong>종가 ≥ min_price</strong></td><td>1,000원</td><td><code>DEFAULT_MIN_PRICE</code></td><td>동전주 제외</td></tr>
+      </tbody>
+    </table>
+    <ul>
+      <li>실행 시 <code>--min_amount</code>, <code>--min_price</code> 인자로 조정 가능</li>
+      <li>동일 종목이 중복되면 첫 행만 사용</li>
+    </ul>
+  </div>
+
+  <div class="step">
+    <h2><span class="badge">3</span> 위험·부적격 종목 제외 <code>_should_exclude</code></h2>
+    <p><code>stocks</code> 마스터에서 종목 정보를 조회한 뒤, 아래 중 <strong>하나라도</strong> 해당하면 제외합니다.</p>
+    <ul>
+      <li><strong>우선주</strong> — <code>is_preferred = True</code></li>
+      <li><strong>시장경보 종목</strong> — <code>warning_type</code>이 존재 (관리종목·투자경고 등)</li>
+      <li><strong>종목명 키워드 포함</strong> — <code>EXCLUDE_KEYWORDS</code>에 포함된 단어가 종목명에 있을 경우
+        <ul><li><code>ETF</code>, <code>ETN</code>, <code>스팩</code>, <code>SPAC</code>, <code>관리종목</code>, <code>정리매매</code>, <code>투자위험</code>, <code>투자경고</code>, <code>거래정지</code></li></ul>
+      </li>
+      <li><strong>종목코드가 6자리 숫자가 아님</strong> — ETF/ETN/SPAC 등 비정형 코드 배제</li>
+    </ul>
+  </div>
+
+  <div class="step">
+    <h2><span class="badge">4</span> 기술적 지표 조회 <code>_fetch_indicators</code></h2>
+    <p><code>daily_technical_indicators</code> 테이블에서 대상 날짜의 다음 지표를 조회합니다.</p>
+    <table>
+      <thead><tr><th>지표</th><th>설명</th><th>용도</th></tr></thead>
+      <tbody>
+        <tr><td><strong>MA(20)</strong></td><td>20일 단순이동평균</td><td>진입 판정</td></tr>
+        <tr><td><strong>HIGH(20)</strong></td><td>20일 최고가</td><td>진입 판정</td></tr>
+        <tr><td><strong>ATR(20)</strong></td><td>20일 평균진폭</td><td>결과 표시(참고용)</td></tr>
+        <tr><td><strong>EMA_STAGE</strong></td><td>이동평균 대순환 단계(1~6)</td><td>결과 표시(참고용)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="step">
+    <h2><span class="badge core">5</span> 신호 분석 — 핵심 진입 조건 <code>_analyze_signals</code></h2>
+    <p>아래 <strong>3가지를 모두 충족</strong>해야 신호로 채택합니다.</p>
+    <table>
+      <thead><tr><th class="center">#</th><th>조건</th><th>코드</th><th>의미</th></tr></thead>
+      <tbody>
+        <tr><td class="center">1</td><td><strong>추세 상승</strong></td><td><code>close &gt; MA(20)</code></td><td>종가가 20일 이동평균 위</td></tr>
+        <tr><td class="center">2</td><td><strong>20일 신고가 돌파</strong></td><td><code>close &gt; HIGH(20)</code></td><td>종가가 직전 20일 최고가 돌파</td></tr>
+        <tr><td class="center">3</td><td><strong>양봉</strong></td><td><code>close &gt; open</code></td><td>당일 종가가 시가보다 높음</td></tr>
+      </tbody>
+    </table>
+    <ul>
+      <li><code>MA(20)</code> 또는 <code>HIGH(20)</code> 지표가 없는 종목은 건너뜀(<code>continue</code>)</li>
+      <li><strong>ATR(20)·EMA_STAGE는 진입 판정에 사용하지 않으며</strong>, 결과 표시용 메타데이터로만 포함</li>
+    </ul>
+  </div>
+
+  <div class="step">
+    <h2><span class="badge">6</span> 강도(strength) 계산 및 정렬</h2>
+    <ul>
+      <li><strong>강도(%) = ((종가 − 시가) / 시가) × 100</strong> — 당일 장중 상승률</li>
+      <li>신호를 <strong>강도 내림차순</strong>으로 정렬</li>
+    </ul>
+  </div>
+
+  <div class="summary">
+    <h2>요약: 최종 선정되는 종목의 조건</h2>
+    <p>아래 조건을 <strong>모두 만족</strong>하는 종목이 최종 신호로 선정됩니다.</p>
+    <ul class="check">
+      <li><strong>유동성</strong> — 거래대금 ≥ 50억 <em>AND</em> 종가 ≥ 1,000원</li>
+      <li><strong>부적격 제외</strong> — 우선주 아님 <em>AND</em> 시장경보 없음 <em>AND</em> 제외 키워드 없음 <em>AND</em> 6자리 숫자 코드</li>
+      <li><strong>지표 존재</strong> — MA(20)·HIGH(20) 지표가 모두 존재</li>
+      <li><strong>진입 3조건</strong> — 종가 &gt; MA(20) <em>AND</em> 종가 &gt; HIGH(20) <em>AND</em> 종가 &gt; 시가</li>
+    </ul>
+    <p>그리고 위 종목들을 <strong>장중 상승률(강도) 높은 순</strong>으로 정렬해 상위부터 보고합니다. (텔레그램은 상위 20개)</p>
+  </div>
+
+  <div class="step">
+    <h2>📤 결과 출력</h2>
+    <table>
+      <thead><tr><th>출력 대상</th><th>내용</th></tr></thead>
+      <tbody>
+        <tr><td><strong>콘솔</strong></td><td>ticker, close, strength, amount(억), MA(20), HIGH(20), ATR(20), STAGE, name</td></tr>
+        <tr><td><strong>엑셀</strong></td><td><code>results/signal_YYYYMMDD.xlsx</code> (종목코드·종목명·종가·강도·거래대금·MA·HIGH·ATR·Stage)</td></tr>
+        <tr><td><strong>텔레그램</strong></td><td>신호 리포트 발송 (<code>--no-notify</code> 시 생략)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="step">
+    <h2>⌨️ 실행 명령어</h2>
+    <div class="cmd">cd backend
+uv run ../scripts/run_strategy.py
+
+# 옵션 예시
+uv run ../scripts/run_strategy.py --date 2026-06-18 --min_amount 10000000000 --min_price 2000 --limit 20 --no-notify</div>
+    <table>
+      <thead><tr><th>인자</th><th>기본값</th><th>설명</th></tr></thead>
+      <tbody>
+        <tr><td><code>--date</code></td><td>오늘</td><td>대상 날짜 (YYYY-MM-DD)</td></tr>
+        <tr><td><code>--min_amount</code></td><td>5,000,000,000</td><td>최소 거래대금(원)</td></tr>
+        <tr><td><code>--min_price</code></td><td>1,000</td><td>최소 가격(원)</td></tr>
+        <tr><td><code>--limit</code></td><td>0(전체)</td><td>콘솔에 출력할 상위 N개</td></tr>
+        <tr><td><code>--no-notify</code></td><td>-</td><td>텔레그램 알림 생략</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="step">
+    <h2>📎 부록: 백테스트 전략과의 차이</h2>
+    <p>일일 스캐너(<code>strategy_scanner.py</code>)와 백테스트 전략(<code>app/backtest/strategies/trend_following.py</code>)은 진입 조건이 다릅니다.</p>
+    <table>
+      <thead><tr><th>조건</th><th class="center">일일 스캐너</th><th class="center">백테스트 (TrendFollowing)</th></tr></thead>
+      <tbody>
+        <tr><td>종가 &gt; 20일 신고가</td><td class="center">✅</td><td class="center">✅</td></tr>
+        <tr><td>종가 &gt; MA(20)</td><td class="center">✅</td><td class="center">❌</td></tr>
+        <tr><td>양봉 (종가 &gt; 시가)</td><td class="center">✅</td><td class="center">❌</td></tr>
+        <tr><td>50EMA 기울기 ≥ -0.2</td><td class="center">❌</td><td class="center">✅</td></tr>
+        <tr><td>ATR 과열 필터 (ATR/종가 ≤ 15%)</td><td class="center">❌</td><td class="center">✅</td></tr>
+        <tr><td>지수 시장 구조 필터 (EMA50)</td><td class="center">❌</td><td class="center">✅</td></tr>
+      </tbody>
+    </table>
+    <ul>
+      <li>일일 스캐너는 <strong>더 단순</strong>하며, 변동성·시장 구조 필터를 적용하지 않습니다.</li>
+      <li>대신 백테스트엔 없는 <strong>양봉 조건</strong>과 <strong>MA(20) 조건</strong>을 추가로 사용합니다.</li>
+      <li>두 로직을 일치시키려면 별도 정렬 작업이 필요합니다.</li>
+    </ul>
+  </div>
+
+</div>
+</body>
+</html>
