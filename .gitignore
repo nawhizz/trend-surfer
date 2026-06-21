@@ -44,3 +44,6 @@ supabase/functions/*/deno.lock
 # Excel files
 *.xls
 *.xlsx
+
+# 백테스트/전략 산출물 (재생성 가능)
+results/
